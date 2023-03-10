@@ -70,7 +70,7 @@ def simple_conf_threshold_mia(predict_fn, x, thresh=0.9999):
 
 #### TODO [optional] implement new MIA attacks.
 #### Put your code here
-def mia_attack():
+def mia_attack(predict_fn, x):
     pass
 
 
@@ -116,8 +116,8 @@ if __name__ == "__main__":
 
     ### load the target model (the one we want to protect)
 
-    model, _ = keras.load_model(model_path)
-    print(f"Loaded model: {model.name} from {model.path}")
+    model, _ = utils.load_model(model_path)
+    print(f"Loaded model: {model.name}")
     # model.summary()  ## you can uncomment this to check the model architecture (ResNet)
 
     st_after_model = time.time()
