@@ -19,7 +19,6 @@ import sklearn
 import tensorflow as tf
 import tensorflow.keras as keras
 
-
 """
 ## Plots a set of images (all m x m)
 ## input is  a square number of images, i.e., np.array with shape (z*z, dim_x, dim_y) for some integer z > 1
@@ -154,9 +153,17 @@ def load_model(fp):
 """
 
 
-def pred_label_and_conf(pred_fn, x, num_classes=10):
-    preds = pred_fn(x).reshape(-1, num_classes)
+def pred_label_and_conf_model(model, x):
+    preds = model.predict(x, verbose=0)[0]
     pred_label = np.argmax(preds, axis=-1)
     pred_conf = preds[pred_label]
+
+    return pred_label, pred_conf
+
+
+def pred_label_and_conf(pred_fn, x, num_classes=10):
+    preds = pred_fn(x)
+    pred_label = np.argmax(preds, axis=-1)[0]
+    pred_conf = preds[0][pred_label]
 
     return pred_label, pred_conf

@@ -10,12 +10,15 @@ import tensorflow.keras as keras
 import utils  # we need this
 
 
-def get_model(part: str):
+def get_model(part: str, model_path: str = None):
     if part == "part1":
         target_model_fp = "./target-model.h5"
         model, _ = utils.load_model(target_model_fp)
         return model
     elif part == "part2":
+        if model_path:
+            model, _ = utils.load_model(model_path)
+            return model
         # ConvNeXt models expect their inputs to be float or uint8 tensors of pixels with values in the [0-255] range.
         # setup model for CIFAR-10 classification
         model = keras.applications.ConvNeXtSmall(include_top=False, input_shape=(32, 32, 3), pooling="avg")
