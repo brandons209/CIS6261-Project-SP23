@@ -57,22 +57,37 @@ def basic_predict(model, x):
 
 #### TODO: implement your defense(s) as a new prediction function
 #### Put your code here
-def feature_squeeze_with_autoencoder(X_train, X_test, num_features):
-    # Build an autoencoder to squeeze the features
-    input_shape = X_train.shape[1]
-    input_layer = Input(shape=(input_shape,))
-    encoded = Dense(num_features, activation='relu')(input_layer)
-    decoded = Dense(input_shape, activation='sigmoid')(encoded)
+def feature_squeeze_with_autoencoder(model, x, num_features):
+    # Create a new instance of the input model with the same architecture as the pre-trained model
+    input_model = keras.models.clone_model(model)
+    
+    # Load the weights from the pre-trained model into the new input model
+    input_model.set_weights(model.get_weights())
+    
+    # Extract features from the input model
+    features = input_model.predict(x)
+    
+    # Create an autoencoder to compress the features
+    encoder = keras.models.Sequential([
+        keras.layers.Dense(num_features, input_shape=(features.shape[1],), activation='relu')
+    ])
+    decoder = keras.models.Sequential([
+        keras.layers.Dense(features.shape[1], input_shape=(num_features,), activation='linear')
+    ])
+    autoencoder = keras.models.Sequential([
+        encoder,
+        decoder
+    ])
+    autoencoder.compile(optimizer='adam', loss='mse')
+    
+    # Train the autoencoder to compress the features
+    autoencoder.fit(features, features, epochs=10, batch_size=32, verbose=0)
+    
+    # Use the trained autoencoder to compress the features
+    compressed_features = encoder.predict(features)
+    
+    return compressed_features
 
-    autoencoder = Model(inputs=input_layer, outputs=decoded)
-    autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
-    autoencoder.fit(X_train, X_train, epochs=10, batch_size=32)
-
-    # Use the autoencoder to compress the features of the training and test data
-    compressed_X_train = autoencoder.predict(X_train)
-    compressed_X_test = autoencoder.predict(X_test)
-
-    return compressed_X_train, compressed_X_test
 
 
 ######### Membership Inference Attacks (MIAs) #########
@@ -144,7 +159,8 @@ if __name__ == "__main__":
     
     
     ### let's wrap the model prediction function so it could be replaced to implement a defense
-    predict_fn = lambda x: basic_predict(model, x)
+    # predict_fn = lambda x: basic_predict(model, x)
+    predict_fn = lambda x: feature_squeeze_with_autoencoder(model, x, 256)
     
     ### now let's evaluate the model with this prediction function
     pred_y = predict_fn(train_x)
