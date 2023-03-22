@@ -39,10 +39,7 @@ def randomized_smoothing_predict(
     elif noise_type.lower() == "laplace":
         x_noisy = x + np.random.laplace(loc=mean, scale=sigma, size=x.shape)
 
-    if np.max(x) > 1:
-        x_noisy_clipped = tf.clip_by_value(x_noisy, 0, 255.0)  # clip
-    else:
-        x_noisy_clipped = tf.clip_by_value(x_noisy, 0, 1.0)  # clip
+    x_noisy_clipped = tf.clip_by_value(x_noisy, 0, 1.0)  # clip
 
     if raw:
         return x_noisy_clipped
@@ -265,6 +262,8 @@ if __name__ == "__main__":
         "Non-local Mean denoising strength 3": lambda x: mean_denoising_predict(model, x, strength=3),
         "Non-local Mean denoising strength 7": lambda x: mean_denoising_predict(model, x, strength=7),
         "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(model, x, strength=10),
+        "Non-local Mean denoising strength 12": lambda x: mean_denoising_predict(model, x, strength=12),
+        "Non-local Mean denoising strength 15": lambda x: mean_denoising_predict(model, x, strength=15),
         # "Smoothing Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="smooth"),
         # "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen"),
         # "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail"),
