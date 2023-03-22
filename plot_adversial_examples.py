@@ -2,10 +2,6 @@ import os
 import numpy as np
 from glob import glob
 
-# we'll use tensorflow and keras for neural networks
-import tensorflow as tf
-import tensorflow.keras as keras
-
 import utils  # we need this
 import project  # use this to import other prediction functions
 
@@ -53,11 +49,15 @@ if __name__ == "__main__":
         "truck",
     ]
 
+    example_benign = None
+
     for attack in sorted(glob(os.path.join(attacks_path, "*.npz"))):
         print(f"--> Processing attack {attack}")
         data = np.load(attack, allow_pickle=True)
         adv_x = data["adv_x"]
         benign_x = data["benign_x"]
+
+        example_benign = benign_x.copy()
 
         idx = np.random.choice(np.arange(len(adv_x)), size=num_images_plot)
 
@@ -68,5 +68,61 @@ if __name__ == "__main__":
                 np.expand_dims(adv_x[i], axis=0),
                 labels,
                 fname=os.path.join(save_path, f"{os.path.basename(attack)[:-4]}_example{i}.png"),
+                show=False,
+            )
+
+    # also plot examples of defense functions on benign images
+    predict_fns = {
+        "Randomized Gaussian 0.05 sigma": lambda x: project.randomized_smoothing_predict(
+            model, x, sigma=0.05, noise_type="Gaussian", raw=True
+        ),
+        "Randomized Laplace 0.05 sigma": lambda x: project.randomized_smoothing_predict(
+            model, x, sigma=0.05, noise_type="Laplace", raw=True
+        ),
+        "Local Median Smoothing Filter": lambda x: project.local_medium_smoothing_predict(model, x, raw=True),
+        "Color Bit Reduction 8bit": lambda x: project.color_bit_depth_reduction_predict(
+            model, x, bit_depth=8, raw=True
+        ),
+        "Color Bit Reduction 4bit": lambda x: project.color_bit_depth_reduction_predict(
+            model, x, bit_depth=4, raw=True
+        ),
+        "Non-local Mean denoising": lambda x: project.mean_denoising_predict(model, x, strength=0.8, raw=True),
+        "Non-local Mean denoising strength 0.8": lambda x: project.mean_denoising_predict(
+            model, x, strength=0.8, raw=True
+        ),
+        "Non-local Mean denoising strength 1.5": lambda x: project.mean_denoising_predict(
+            model, x, strength=1.5, raw=True
+        ),
+        "Non-local Mean denoising strength 3": lambda x: project.mean_denoising_predict(model, x, strength=3, raw=True),
+        "Non-local Mean denoising strength 7": lambda x: project.mean_denoising_predict(model, x, strength=7, raw=True),
+        "Smoothing Convolution Filter": lambda x: project.smoothing_convolution_predict(
+            model, x, filter_type="smooth", raw=True
+        ),
+        "Sharpen Convolution Filter": lambda x: project.smoothing_convolution_predict(
+            model, x, filter_type="sharpen", raw=True
+        ),
+        "Detail Convolution Filter": lambda x: project.smoothing_convolution_predict(
+            model, x, filter_type="detail", raw=True
+        ),
+        "Blur Convolution Filter": lambda x: project.smoothing_convolution_predict(
+            model, x, filter_type="blur", raw=True
+        ),
+    }
+
+    for name, defense in predict_fns.items():
+        print(f"--> Processing defense {name}")
+
+        adv_x = defense(example_benign)
+        benign_x = example_benign
+
+        idx = np.random.choice(np.arange(len(adv_x)), size=num_images_plot)
+
+        for i in idx:
+            plot_adversarial_example(
+                predict_fn,  # basic prediction of model w/o defense
+                np.expand_dims(benign_x[i], axis=0),
+                np.expand_dims(adv_x[i], axis=0),
+                labels,
+                fname=os.path.join(save_path, f"{name}_example{i}.png"),
                 show=False,
             )

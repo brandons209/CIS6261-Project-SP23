@@ -9,18 +9,19 @@ import sys
 import os
 
 import time
-
 import numpy as np
-
+import pandas as pd
 import sklearn
+import cv2
 from sklearn.metrics import confusion_matrix
+from scipy.ndimage import median_filter, convolve
+from glob import glob
 
 # we'll use tensorflow and keras for neural networks
 import tensorflow as tf
 import tensorflow.keras as keras
 
 import utils  # we need this
-
 
 ######### Prediction Fns #########
 
@@ -30,9 +31,9 @@ def basic_predict(model, x):
     return model(x)
 
 
-#### TODO: implement your defense(s) as a new prediction function
-#### Put your code here
-def randomized_smoothing_predict(model, x, mean: float = 0.0, sigma: float = 1.0, noise_type="Gaussian"):
+def randomized_smoothing_predict(
+    model, x, mean: float = 0.0, sigma: float = 1.0, noise_type="Gaussian", raw: bool = False
+):
     if noise_type.lower() == "gaussian":
         x_noisy = x + tf.random.normal(x.shape, mean=mean, stddev=sigma)
     elif noise_type.lower() == "laplace":
@@ -43,7 +44,104 @@ def randomized_smoothing_predict(model, x, mean: float = 0.0, sigma: float = 1.0
     else:
         x_noisy_clipped = tf.clip_by_value(x_noisy, 0, 1.0)  # clip
 
+    if raw:
+        return x_noisy_clipped
     return model(x_noisy_clipped)
+
+
+def local_medium_smoothing_predict(model, x, kernel_size: tuple = (2, 2, 2), mode: str = "reflect", raw: bool = False):
+    filtered_image = median_filter(x, size=(1, *kernel_size), mode=mode)
+    if raw:
+        return filtered_image
+    return model(filtered_image)
+
+
+def color_bit_depth_reduction_predict(model, x, bit_depth: int = 8, raw: bool = False):
+    bit_reduction = 2**bit_depth - 1
+    x = (x * bit_reduction).astype(int)
+    x = x.astype(float) / bit_reduction
+    if raw:
+        return x
+    return model(x)
+
+
+def smoothing_convolution_predict(model, x, filter_type: str = "smooth", raw: bool = False):
+    if filter_type == "smooth":
+        filter = np.array(
+            [
+                [1, 1, 1],
+                [1, 5, 1],
+                [1, 1, 1],
+            ]
+        )
+    elif filter_type == "sharpen":
+        filter = np.array(
+            [
+                [-2, -2, -2],
+                [-2, 32, -2],
+                [-2, -2, -2],
+            ]
+        )
+    elif filter_type == "detail":
+        filter = np.array(
+            [
+                [-1, -1, -1],
+                [-1, 8, -1],
+                [-1, -1, -1],
+            ]
+        )
+    elif filter_type == "blur":
+        filter = np.array(
+            [
+                [1, 1, 1],
+                [1, 0, 1],
+                [1, 1, 1],
+            ]
+        )
+    else:
+        filter = np.array(
+            [
+                [1, 1, 1],
+                [1, 5, 1],
+                [1, 1, 1],
+            ]
+        )
+
+    # filters above were pulled from pillow library, need to divide them for use in [0, 1] range for our images
+    filter = filter.astype(float) / 255
+
+    # convolve requires filter to have same number of dimensions as input, so it needs to be 3d
+    filter = np.array([filter, filter, filter])
+
+    data = [convolve(i, filter) for i in x]
+
+    x = np.array(data)
+
+    if raw:
+        return x
+    return model(x)
+
+
+def mean_denoising_predict(model, x, strength: float = 3, raw: bool = False):
+    data = [
+        cv2.fastNlMeansDenoisingColored(
+            cv2.cvtColor((i * 255).astype(np.float32), cv2.COLOR_RGB2BGR).astype(np.uint8),
+            None,
+            h=strength,
+            templateWindowSize=7,
+            searchWindowSize=21,
+        )
+        for i in x
+    ]
+
+    # need to convert back to RGB and scale to 0, 1
+    x = np.array([cv2.cvtColor(i, cv2.COLOR_BGR2RGB) for i in data])
+
+    x = x.astype(float) / 255
+
+    if raw:
+        return x
+    return model(x)
 
 
 ######### Membership Inference Attacks (MIAs) #########
@@ -85,6 +183,9 @@ if __name__ == "__main__":
     # keep track of time
     st = time.time()
 
+    # storing data
+    history = {}
+
     #### load the data
     print("\n------------ Loading Data & Model ----------")
 
@@ -101,25 +202,13 @@ if __name__ == "__main__":
     st_after_model = time.time()
 
     ### let's evaluate the raw model on the train and test data
-    train_loss, train_acc = model.evaluate(train_x, train_y, verbose=0)
-    test_loss, test_acc = model.evaluate(test_x, test_y, verbose=0)
-    print("[Raw Model] Train accuracy: {:.2f}% --- Test accuracy: {:.2f}%".format(100 * train_acc, 100 * test_acc))
+    # train_loss, train_acc = model.evaluate(train_x, train_y, verbose=0)
+    # test_loss, test_acc = model.evaluate(test_x, test_y, verbose=0)
+    # print("[Raw Model] Train accuracy: {:.2f}% --- Test accuracy: {:.2f}%".format(100 * train_acc, 100 * test_acc))
 
     ### let's wrap the model prediction function so it could be replaced to implement a defense
     predict_fns = {
         "Basic": lambda x: basic_predict(model, x),
-        "Randomized Gaussian 0.01 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.01,
-            noise_type="Gaussian",
-        ),
-        "Randomized Laplace 0.01 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.01,
-            noise_type="Laplace",
-        ),
         "Randomized Gaussian 0.05 sigma": lambda x: randomized_smoothing_predict(
             model,
             x,
@@ -130,32 +219,6 @@ if __name__ == "__main__":
             model,
             x,
             sigma=0.05,
-            noise_type="Laplace",
-        ),
-        "Randomized Gaussian 0.1 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.1,
-            noise_type="Gaussian",
-        ),
-        "Randomized Laplace 0.1 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.1,
-            noise_type="Laplace",
-        ),
-        "Randomized Gaussian 0.1 sigma mean 0.5": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            mean=0.5,
-            sigma=0.1,
-            noise_type="Gaussian",
-        ),
-        "Randomized Laplace 0.1 sigma mean 0.5": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            mean=0.5,
-            sigma=0.1,
             noise_type="Laplace",
         ),
         "Randomized Gaussian 0.25 sigma": lambda x: randomized_smoothing_predict(
@@ -182,34 +245,35 @@ if __name__ == "__main__":
             sigma=0.5,
             noise_type="Laplace",
         ),
-        "Randomized Gaussian 1 sigma": lambda x: randomized_smoothing_predict(
+        "Randomized Gaussian 1.0 sigma": lambda x: randomized_smoothing_predict(
             model,
             x,
-            sigma=1,
+            sigma=1.0,
             noise_type="Gaussian",
         ),
-        "Randomized Laplace 1 sigma": lambda x: randomized_smoothing_predict(
+        "Randomized Laplace 1.0 sigma": lambda x: randomized_smoothing_predict(
             model,
             x,
-            sigma=1,
+            sigma=1.0,
             noise_type="Laplace",
         ),
-        "Randomized Gaussian 1.5 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=1.5,
-            noise_type="Gaussian",
-        ),
-        "Randomized Laplace 1.5 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=1.5,
-            noise_type="Laplace",
-        ),
+        "Local Median Smoothing Filter": lambda x: local_medium_smoothing_predict(model, x),
+        "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=4),
+        "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=2),
+        "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(model, x, strength=0.8),
+        "Non-local Mean denoising strength 1.5": lambda x: mean_denoising_predict(model, x, strength=1.5),
+        "Non-local Mean denoising strength 3": lambda x: mean_denoising_predict(model, x, strength=3),
+        "Non-local Mean denoising strength 7": lambda x: mean_denoising_predict(model, x, strength=7),
+        "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(model, x, strength=10),
+        # "Smoothing Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="smooth"),
+        # "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen"),
+        # "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail"),
+        # "Blur Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="blur"),
     }
 
     for i, predict_fn in enumerate(predict_fns.items()):
         name, predict_fn = predict_fn
+
         print(f"Evaluation against prediction function '{name}'")
         ### now let's evaluate the model with this prediction function
         pred_y = predict_fn(train_x)
@@ -218,6 +282,8 @@ if __name__ == "__main__":
         pred_y = predict_fn(test_x)
         test_acc = np.mean(np.argmax(test_y, axis=-1) == np.argmax(pred_y, axis=-1))
         print("[Model] Train accuracy: {:.2f}% --- Test accuracy: {:.2f}%".format(100 * train_acc, 100 * test_acc))
+
+        history[name] = {"Train Accuracy": 100 * train_acc, "Test Accuracy": 100 * test_acc}
 
         ### evaluating the privacy of the model wrt membership inference
         mia_eval_size = 2000
@@ -250,16 +316,27 @@ if __name__ == "__main__":
                 )
             )
 
+            history[name].update(
+                {
+                    f"{attack_str} Acc": attack_acc * 100,
+                    f"{attack_str} Adv": attack_adv,
+                    f"{attack_str} Prec": attack_precision,
+                    f"{attack_str} Recall": attack_recall,
+                    f"{attack_str} F1": attack_f1,
+                }
+            )
+
         ### evaluating the robustness of the model wrt adversarial examples
         print("\n------------ Adversarial Examples ----------")
         advexp_fps = []
         advexp_fps.append(("Adversarial examples attack0", os.path.join("attacks", "advexp0.npz")))
         advexp_fps.append(("Adversarial examples attack1", os.path.join("attacks", "advexp1.npz")))
-        advexp_fps.append(("Adversarial gradient attack2", os.path.join("attacks", "adv2_gradient_attack.npz")))
-        advexp_fps.append(("Adversarial fgsm     attack3", os.path.join("attacks", "adv3_fgsm.npz")))
-        advexp_fps.append(
-            ("Adversarial mifgsm   attack4", os.path.join("attacks", "adv3_mifgsm_alpha_0.1_decay_0.1.npz"))
-        )
+        # our created attacks
+        for attack in sorted(glob(os.path.join("attacks", "*.npz"))):
+            if "advexp0" in attack or "advexp1" in attack:
+                continue
+
+            advexp_fps.append((f"Adversarial attack {os.path.basename(attack)}", attack))
 
         for i, tup in enumerate(advexp_fps):
             attack_str, attack_fp = tup
@@ -283,6 +360,10 @@ if __name__ == "__main__":
                 )
             )
 
+            history[name].update(
+                {f"{attack_str} Benign Acc": 100 * benign_acc, f"{attack_str} Adver Acc": 100 * adv_acc}
+            )
+
         print("------------\n")
 
         et = time.time()
@@ -292,5 +373,28 @@ if __name__ == "__main__":
                 et - st, st_after_model - st
             )
         )
+
+    # print consolidated results
+    headers = [
+        "Train Accuracy",
+        "Test Accuracy",
+    ]
+    for n in mia_attack_fns:
+        headers += [
+            f"{n[0]} Acc",
+            f"{n[0]} Adv",
+            f"{n[0]} Prec",
+            f"{n[0]} Recall",
+            f"{n[0]} F1",
+        ]
+
+    for n in advexp_fps:
+        headers += [n[0] + " Benign Acc", n[0] + " Adver Acc"]
+
+    data = pd.DataFrame(list(history.values()), columns=headers, index=list(history.keys()))
+    data.index.name = "Predicton Function"
+    print(data)
+
+    data.to_csv("results.csv")
 
     sys.exit(0)
