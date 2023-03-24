@@ -16,6 +16,7 @@ import cv2
 from sklearn.metrics import confusion_matrix
 from scipy.ndimage import median_filter, convolve
 from glob import glob
+from skimage.util import random_noise
 
 # we'll use tensorflow and keras for neural networks
 import tensorflow as tf
@@ -45,6 +46,19 @@ def randomized_smoothing_predict(
         return x_noisy_clipped
     return model(x_noisy_clipped)
 
+def salt_and_pepper_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
+    x_noisy = random_noise(x, mode='s&p', amount=amount, clip=True)
+
+    if raw:
+        return x_noisy
+    return model(x_noisy)
+
+def speckle_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
+    x_noisy = random_noise(x, mode='speckle', mean=0, var=sigma)
+
+    if raw:
+        return x_noisy
+    return model(x_noisy)
 
 def local_medium_smoothing_predict(model, x, kernel_size: tuple = (2, 2, 2), mode: str = "reflect", raw: bool = False):
     filtered_image = median_filter(x, size=(1, *kernel_size), mode=mode)
@@ -254,6 +268,9 @@ if __name__ == "__main__":
             sigma=1.0,
             noise_type="Laplace",
         ),
+        
+        "Salt and Pepper Noise": lambda x: salt_and_pepper_noise_predict(model, x),
+        "Speckle Noise": lambda x: speckle_noise_predict(model, x),
         "Local Median Smoothing Filter": lambda x: local_medium_smoothing_predict(model, x),
         "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=4),
         "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=2),
@@ -264,10 +281,10 @@ if __name__ == "__main__":
         "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(model, x, strength=10),
         "Non-local Mean denoising strength 12": lambda x: mean_denoising_predict(model, x, strength=12),
         "Non-local Mean denoising strength 15": lambda x: mean_denoising_predict(model, x, strength=15),
-        # "Smoothing Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="smooth"),
-        # "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen"),
-        # "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail"),
-        # "Blur Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="blur"),
+        "Smoothing Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="smooth"),
+        "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen"),
+        "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail"),
+        "Blur Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="blur"),
     }
 
     for i, predict_fn in enumerate(predict_fns.items()):
@@ -395,5 +412,4 @@ if __name__ == "__main__":
     print(data)
 
     data.to_csv("results.csv")
-
     sys.exit(0)
