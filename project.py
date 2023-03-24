@@ -54,11 +54,27 @@ def salt_and_pepper_noise_predict(model, x, amount: float = 0.05, raw: bool = Fa
     return model(x_noisy)
 
 def speckle_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
-    x_noisy = random_noise(x, mode='speckle', mean=0, var=sigma)
+    x_noisy = random_noise(x, mode='speckle', mean=0, var=amount)
 
     if raw:
         return x_noisy
     return model(x_noisy)
+
+def add_poisson_noise(model, x, lam=1.0, raw: bool = False):
+    x_noisy = np.random.poisson(x * lam) / lam
+    x_noisy = np.clip(x_noisy, 0, 1)
+    if raw:
+        return x_noisy
+    return model(x_noisy)
+
+def add_multiplicative_noise(x, noise_factor=0.05, raw: bool = False):
+    noise = np.random.normal(loc=1.0, scale=noise_factor, size=x.shape)
+    x_noisy = x * noise
+    x_noisy = np.clip(x_noisy, 0, 1)
+    if raw:
+        return x_noisy
+    return model(x_noisy)
+
 
 def local_medium_smoothing_predict(model, x, kernel_size: tuple = (2, 2, 2), mode: str = "reflect", raw: bool = False):
     filtered_image = median_filter(x, size=(1, *kernel_size), mode=mode)
@@ -271,6 +287,7 @@ if __name__ == "__main__":
         
         "Salt and Pepper Noise": lambda x: salt_and_pepper_noise_predict(model, x),
         "Speckle Noise": lambda x: speckle_noise_predict(model, x),
+        "Poisson_Noise": lambda x: add_poisson_noise(model, x),
         "Local Median Smoothing Filter": lambda x: local_medium_smoothing_predict(model, x),
         "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=4),
         "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=2),
