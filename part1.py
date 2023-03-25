@@ -54,6 +54,34 @@ def basic_predict(model, x):
 
 #### TODO: implement your defense(s) as a new prediction function
 #### Put your code here
+def randomized_smoothing_function(model, x):
+    num_samples=1
+    noise_type='gaussian'
+    sigma=0.01
+    y_pred_avg = np.zeros((x.shape[0], 10))
+    for i in range(0, num_samples):
+        #GAUSSIAN NOISE
+
+        if(noise_type=='gaussian'):
+            gaussian_noise=np.random.normal(0,sigma)
+            x_noisy=x+gaussian_noise
+
+        #LAPLACE NOISE
+        elif(noise_type=='laplace'):
+            laplace_noise=np.random.laplace(loc=0.0, scale=sigma)
+            x_noisy=x+laplace_noise
+
+        x_noisy_clipped = tf.clip_by_value(x_noisy, 0, 1.0)
+
+        y_pred = model.predict(x_noisy_clipped, verbose=0)
+        assert y_pred.shape == y_pred_avg.shape
+        #TRIED TO DISTORT LABEL PREDICTION IN EACH SAMPLE ITERATION BY 5%
+        # y_pred=tf.clip_by_value(y_pred*0.05, 0, 10.0)
+        y_pred=y_pred*0.05
+        y_pred_avg += y_pred
+    
+    y_pred_avg /= num_samples
+    return y_pred_avg
 
 
 
@@ -126,10 +154,11 @@ if __name__ == "__main__":
     
     
     ### let's wrap the model prediction function so it could be replaced to implement a defense
-    predict_fn = lambda x: basic_predict(model, x)
-    
+    predict_fn = lambda x: randomized_smoothing_function(model, x)
+
     ### now let's evaluate the model with this prediction function
     pred_y = predict_fn(train_x)
+    # print(type(pred_y))
     train_acc = np.mean(np.argmax(train_y, axis=-1) == np.argmax(pred_y, axis=-1))
     
     pred_y = predict_fn(test_x)
