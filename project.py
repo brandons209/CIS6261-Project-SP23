@@ -16,6 +16,7 @@ import cv2
 from sklearn.metrics import confusion_matrix
 from scipy.ndimage import median_filter, convolve
 from glob import glob
+from skimage.util import random_noise
 
 # we'll use tensorflow and keras for neural networks
 import tensorflow as tf
@@ -38,12 +39,45 @@ def randomized_smoothing_predict(
         x_noisy = x + tf.random.normal(x.shape, mean=mean, stddev=sigma)
     elif noise_type.lower() == "laplace":
         x_noisy = x + np.random.laplace(loc=mean, scale=sigma, size=x.shape)
+    elif noise_type.lower() == "poisson":
+        x_noisy = x + np.random.poisson(lam=sigma, size=x.shape)
 
     x_noisy_clipped = tf.clip_by_value(x_noisy, 0, 1.0)  # clip
 
     if raw:
         return x_noisy_clipped
     return model(x_noisy_clipped)
+
+
+def distort_output_predict(model, x, y: np.array = None, amount=0.05):
+    if y is not None:
+        return y * (1 + amount)
+    return model(x) * (1 + amount)
+
+
+def salt_and_pepper_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
+    x_noisy = random_noise(x, mode="s&p", amount=amount, clip=True)
+
+    if raw:
+        return x_noisy
+    return model(x_noisy)
+
+
+def speckle_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
+    x_noisy = random_noise(x, mode="speckle", mean=0, var=amount)
+
+    if raw:
+        return x_noisy
+    return model(x_noisy)
+
+
+def add_multiplicative_noise(x, noise_factor=0.05, raw: bool = False):
+    noise = np.random.normal(loc=1.0, scale=noise_factor, size=x.shape)
+    x_noisy = x * noise
+    x_noisy = np.clip(x_noisy, 0, 1)
+    if raw:
+        return x_noisy
+    return model(x_noisy)
 
 
 def local_medium_smoothing_predict(model, x, kernel_size: tuple = (2, 2, 2), mode: str = "reflect", raw: bool = False):
@@ -206,64 +240,57 @@ if __name__ == "__main__":
     ### let's wrap the model prediction function so it could be replaced to implement a defense
     predict_fns = {
         "Basic": lambda x: basic_predict(model, x),
-        "Randomized Gaussian 0.05 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.05,
-            noise_type="Gaussian",
-        ),
-        "Randomized Laplace 0.05 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.05,
-            noise_type="Laplace",
-        ),
-        "Randomized Gaussian 0.25 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.25,
-            noise_type="Gaussian",
-        ),
-        "Randomized Laplace 0.25 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.25,
-            noise_type="Laplace",
-        ),
-        "Randomized Gaussian 0.5 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.5,
-            noise_type="Gaussian",
-        ),
-        "Randomized Laplace 0.5 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=0.5,
-            noise_type="Laplace",
-        ),
-        "Randomized Gaussian 1.0 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=1.0,
-            noise_type="Gaussian",
-        ),
-        "Randomized Laplace 1.0 sigma": lambda x: randomized_smoothing_predict(
-            model,
-            x,
-            sigma=1.0,
-            noise_type="Laplace",
-        ),
-        "Local Median Smoothing Filter": lambda x: local_medium_smoothing_predict(model, x),
-        "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=4),
-        "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=2),
-        "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(model, x, strength=0.8),
-        "Non-local Mean denoising strength 1.5": lambda x: mean_denoising_predict(model, x, strength=1.5),
-        "Non-local Mean denoising strength 3": lambda x: mean_denoising_predict(model, x, strength=3),
-        "Non-local Mean denoising strength 7": lambda x: mean_denoising_predict(model, x, strength=7),
-        "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(model, x, strength=10),
-        "Non-local Mean denoising strength 12": lambda x: mean_denoising_predict(model, x, strength=12),
-        "Non-local Mean denoising strength 15": lambda x: mean_denoising_predict(model, x, strength=15),
+        # "Randomized Gaussian 0.05 sigma": lambda x: randomized_smoothing_predict(
+        #    model, x, sigma=0.05, noise_type="Gaussian"
+        # ),
+        # "Randomized Laplace 0.05 sigma": lambda x: randomized_smoothing_predict(
+        #    model, x, sigma=0.05, noise_type="Laplace"
+        # ),
+        # "Randomized Gaussian 0.25 sigma": lambda x: randomized_smoothing_predict(
+        #    model, x, sigma=0.25, noise_type="Gaussian"
+        # ),
+        # "Randomized Laplace 0.25 sigma": lambda x: randomized_smoothing_predict(
+        #    model, x, sigma=0.25, noise_type="Laplace"
+        # ),
+        # "Randomized Gaussian 0.5 sigma": lambda x: randomized_smoothing_predict(
+        #    model, x, sigma=0.5, noise_type="Gaussian"
+        # ),
+        # "Randomized Laplace 0.5 sigma": lambda x: randomized_smoothing_predict(
+        #    model, x, sigma=0.5, noise_type="Laplace"
+        # ),
+        # "Randomized Gaussian 1.0 sigma": lambda x: randomized_smoothing_predict(
+        #    model, x, sigma=1.0, noise_type="Gaussian"
+        # ),
+        # "Randomized Laplace 1.0 sigma": lambda x: randomized_smoothing_predict(
+        #    model, x, sigma=1.0, noise_type="Laplace"
+        # ),
+        "Label distortion 0.05 sigma": lambda x: distort_output_predict(model, x),
+        "Label distortion 0.1 sigma": lambda x: distort_output_predict(model, x, amount=0.1),
+        "Label distortion 0.2 sigma": lambda x: distort_output_predict(model, x, amount=0.2),
+        # "Salt and Pepper Noise 0.01": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.01),
+        # "Salt and Pepper Noise 0.02": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.02),
+        # "Salt and Pepper Noise 0.05": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.05),
+        # "Salt and Pepper Noise 0.07": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.07),
+        # "Salt and Pepper Noise 0.09": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.09),
+        # "Speckle Noise 0.01": lambda x: speckle_noise_predict(model, x, amount=0.01),
+        # "Speckle Noise 0.02": lambda x: speckle_noise_predict(model, x, amount=0.02),
+        # "Speckle Noise 0.05": lambda x: speckle_noise_predict(model, x, amount=0.05),
+        # "Speckle Noise 0.07": lambda x: speckle_noise_predict(model, x, amount=0.07),
+        # "Speckle Noise 0.09": lambda x: speckle_noise_predict(model, x, amount=0.09),
+        "Poisson_Noise 0.01 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.01, noise_type="poisson"),
+        "Poisson_Noise 0.02 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.02, noise_type="poisson"),
+        "Poisson_Noise 0.03 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.03, noise_type="poisson"),
+        "Poisson_Noise 0.04 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.04, noise_type="poisson"),
+        # "Local Median Smoothing Filter": lambda x: local_medium_smoothing_predict(model, x),
+        # "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=4),
+        # "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=2),
+        # "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(model, x, strength=0.8),
+        # "Non-local Mean denoising strength 1.5": lambda x: mean_denoising_predict(model, x, strength=1.5),
+        # "Non-local Mean denoising strength 3": lambda x: mean_denoising_predict(model, x, strength=3),
+        # "Non-local Mean denoising strength 7": lambda x: mean_denoising_predict(model, x, strength=7),
+        # "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(model, x, strength=10),
+        # "Non-local Mean denoising strength 12": lambda x: mean_denoising_predict(model, x, strength=12),
+        # "Non-local Mean denoising strength 15": lambda x: mean_denoising_predict(model, x, strength=15),
         # "Smoothing Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="smooth"),
         # "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen"),
         # "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail"),
@@ -395,5 +422,4 @@ if __name__ == "__main__":
     print(data)
 
     data.to_csv("results.csv")
-
     sys.exit(0)
