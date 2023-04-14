@@ -57,7 +57,8 @@ def train_model(model, train_data: tuple, validation_data: tuple, test_data: tup
     )
 
     print("Testing data results:")
-    model.evaluate(test_data)
+    # the line below was throwing error because of parameters. changed it. now error is fixed. please check.
+    model.evaluate(test_data[0],test_data[1])
 
     return history
 
