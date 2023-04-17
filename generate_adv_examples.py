@@ -2,7 +2,7 @@ import os
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
-
+from tensorflow.keras import backend as K
 import utils
 
 from tqdm import tqdm
@@ -196,6 +196,75 @@ def craft_adversarial_fgsmk(
     return x_benign_samples, correct_labels, x_adv_samples
 
 
+
+def carlini_wagner(model, x, y,c = 10.0,lr = 0.01,initial_const = 0.001, max_iter=100, targeted=True, confidence=0.0, ):
+
+    # create a tensor to store the original (benign) examples
+    x_benign = tf.Variable(tf.zeros_like(x), dtype=tf.float32)
+    x_benign.assign(x)
+
+    # compute the logits for the original (benign) examples
+    logits_benign = model(x_benign)
+
+    # compute the correct labels for the original (benign) examples
+    correct_labels = tf.argmax(logits_benign, axis=1)
+
+    batch_size = x.shape[0]
+    num_classes = model.output_shape[-1]
+    image_size = x.shape[1:]
+
+    # set up the attack objective
+    target_labels = None
+    if targeted:
+        target_labels = y
+        y = tf.argmax(model(x), axis=1)
+
+    def l2_distance(a, b):
+        return K.sum(K.square(a - b), axis=(1, 2, 3))
+
+    def cw_loss_func(inputs, labels):
+        # compute the logits for the given inputs
+        logits = model(inputs)
+        # compute the l2 distance between the inputs and the adversarial examples
+        distances = l2_distance(inputs, x)
+        # compute the loss according to the targeted or untargeted setting
+        if targeted:
+            other_labels = tf.reduce_max(logits - labels, axis=1)
+            target_labels = tf.reduce_max(labels, axis=1)
+            losses = tf.maximum(0.0, other_labels - target_labels + confidence)
+        else:
+            correct_labels = tf.reduce_max(logits * labels, axis=1)
+            other_labels = tf.reduce_max(logits * (1 - labels), axis=1)
+            losses = tf.maximum(0.0, other_labels - correct_labels + confidence)
+
+        # compute the total loss
+        return K.mean(initial_const * losses + c * distances)
+
+    # create a tensor to store the adversarial examples
+    x_adv = tf.Variable(tf.zeros_like(x), dtype=tf.float32)
+
+    # define the optimizer
+    optimizer = tf.keras.optimizers.Adam(lr=lr)
+
+    # perform the attack iterations
+    for i in range(max_iter):
+        # compute the gradients of the loss with respect to the input
+        with tf.GradientTape() as tape:
+            loss = cw_loss_func(x_adv, tf.one_hot(y, num_classes))
+        gradients = tape.gradient(loss, x_adv)
+
+        # apply the gradients to update the adversarial examples
+        optimizer.apply_gradients([(gradients, x_adv)])
+
+        # clip the adversarial examples to ensure they are in the valid range
+        x_adv.assign(tf.clip_by_value(x_adv, 0.0, 1.0))
+
+        # print the loss for monitoring progress
+        print(f"Step {i+1}, Loss={loss.numpy()}")
+
+    return x_benign.numpy(), correct_labels.numpy(), x_adv.numpy()
+
+
 if __name__ == "__main__":
     num_samples = 1000
     alpha_values = [0.001, 0.005, 0.01, 0.025, 0.05, 0.075]
@@ -319,3 +388,55 @@ if __name__ == "__main__":
             print(f"\t\t-->Finished MI-FGSM attack. Saved to attacks/adv3_mifgsm_alpha_{a}_decay_{d}.npz")
 
         print("\t-->Finished MI-FGSM attack.")
+
+    print("--> Starting Carlini Wagner attack...")
+    while(True):
+        idx = np.random.choice(np.arange(len(x)), size=num_samples)
+
+        c = 10.0
+        lr = 0.01
+        initial_const = 0.001
+        max_iter=100
+        targeted=True
+        confidence=0.0
+
+        # max_iter: The maximum number of iterations to run the attack.
+        # targeted: A boolean indicating whether to perform a targeted or untargeted attack.
+        # confidence: The confidence level for the attack, which affects the strength of the attack.
+        # c: A constant used to weight the l2 distance term in the loss function.
+        # lr: The learning rate for the optimizer.
+        # initial_const: The initial value for the constant used to weight the loss term in the loss function.
+
+        # c: Typically, c can range from 0.1 to 100.0. A higher value of c means that the algorithm prioritizes minimizing the distortion (L2 distance) between the adversarial examples and the original examples. On the other hand, a lower value of c means that the algorithm prioritizes minimizing the loss function (i.e., maximizing the probability of the target class for a targeted attack or minimizing the probability of the true class for an untargeted attack).
+        # lr: The learning rate lr typically ranges from 0.001 to 0.1. This value controls how much the adversarial examples are updated in each iteration of the optimization process
+
+
+        # don't recreate if it already exists
+        if os.path.isfile(os.path.join("attacks", f"adv4_carlini_wagner_c_{c}_lr_{lr}.npz")):
+            break
+
+        x_benign, correct_labels, x_adv = carlini_wagner(
+            model,
+            x[idx],
+            y[idx],
+            c ,
+            lr,
+            initial_const, 
+            max_iter, 
+            targeted, 
+            confidence,
+        )
+
+        if part == "part2":
+            # if using part2, input needs to be unnormalized
+            x_benign *= 255
+            x_adv *= 255
+
+        np.savez(
+            os.path.join("attacks", f"adv4_carlini_wagner_c_{c}_lr_{lr}.npz"),
+            benign_x=x_benign,
+            benign_y=correct_labels,
+            adv_x=x_adv,
+        )
+
+        print(f"\t--> Finished Carlini Wagner attack. Saved to attacks/adv4_carlini_wagner_c_{c}_lr_{lr}.npz")
