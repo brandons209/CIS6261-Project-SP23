@@ -15,7 +15,7 @@ def gradient_of_loss_wrt_input(model, x, y):
     loss_func = tf.keras.losses.CategoricalCrossentropy()
     with tf.GradientTape() as g:
         g.watch(x)
-        loss = loss_func(y, model.predict(x, verbose=0))
+        loss = loss_func(y, model(x))
 
     return g.gradient(loss, x)
 
@@ -111,7 +111,7 @@ def targeted_gradient_noise(
         x_in = tf.identity(x_in)
 
         # set the most likely incorrect label as target
-        y_pred = model.predict(x_adv, verbose=0).numpy()
+        y_pred = model.predict(x_adv, verbose=0)
         y_pred[y_flat[idx]] = 0
         target_class_number = np.argmax(y_pred, axis=-1)
 
@@ -259,6 +259,9 @@ def craft_adversarial_fgsmk(
 
 
 if __name__ == "__main__":
+    # having issues with vram on gpu, so force CPU usage
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
     num_train_samples = 2500
     num_test_samples = 1000
 
@@ -272,8 +275,8 @@ if __name__ == "__main__":
         1.5,
         2.0,
     ]
-    part = "part2"
-    model_path = "./part2_model_best.h5"  # "./target-model.h5"
+    part = "part1"
+    model_path = "./target-model.h5"  # "./target-model.h5"
 
     if part == "part2":
         model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
