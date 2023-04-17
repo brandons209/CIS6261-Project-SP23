@@ -295,99 +295,99 @@ if __name__ == "__main__":
     print(y.shape)
     print(np.max(x))
 
-    # print(f"Generating {num_samples} adversial examples per attack for {part}.")
+    print(f"Generating {num_samples} adversial examples per attack for {part}.")
 
-    # print("--> Starting targeted gradient attack...")
+    print("--> Starting targeted gradient attack...")
 
-    # for a in alpha_values:
-    #     idx = np.random.choice(np.arange(len(x)), size=num_samples)
-    #     # don't recreate if it already exists
-    #     if os.path.isfile(os.path.join("attacks", f"adv2_gradient_attack_alpha_{a}.npz")):
-    #         continue
+    for a in alpha_values:
+        idx = np.random.choice(np.arange(len(x)), size=num_samples)
+        # don't recreate if it already exists
+        if os.path.isfile(os.path.join("attacks", f"adv2_gradient_attack_alpha_{a}.npz")):
+            continue
 
-    #     x_benign = x[idx]
-    #     x_adv, correct_labels = targeted_gradient_noise(
-    #         model,
-    #         x[idx],
-    #         y[idx],
-    #         max_iter=100,
-    #         alpha=a,
-    #         eps=0.1,
-    #         conf=0.7,
-    #     )
+        x_benign = x[idx]
+        x_adv, correct_labels = targeted_gradient_noise(
+            model,
+            x[idx],
+            y[idx],
+            max_iter=100,
+            alpha=a,
+            eps=0.1,
+            conf=0.7,
+        )
 
-    #     if part == "part2":
-    #         # if using part2, input needs to be unnormalized
-    #         x_benign *= 255
-    #         x_adv *= 255
+        if part == "part2":
+            # if using part2, input needs to be unnormalized
+            x_benign *= 255
+            x_adv *= 255
 
-    #     np.savez(
-    #         os.path.join("attacks", f"adv2_gradient_attack_alpha_{a}.npz"),
-    #         benign_x=x_benign,
-    #         benign_y=correct_labels,
-    #         adv_x=x_adv,
-    #     )
+        np.savez(
+            os.path.join("attacks", f"adv2_gradient_attack_alpha_{a}.npz"),
+            benign_x=x_benign,
+            benign_y=correct_labels,
+            adv_x=x_adv,
+        )
 
-    #     print(f"\t--> Finished targeted gradient attack. Saved to attacks/adv2_gradient_attack_alpha_{a}.npz")
+        print(f"\t--> Finished targeted gradient attack. Saved to attacks/adv2_gradient_attack_alpha_{a}.npz")
 
-    # print("\n--> Starting untargeted FGSM attack...")
-    # for a in alpha_values:
-    #     if not os.path.isfile(os.path.join("attacks", f"adv3_fgsm_alpha_{a}.npz")):
-    #         print(f"\t--> Performing FGSM with alpha value {a}")
-    #         x_benign, correct_labels, x_adv = craft_adversarial_fgsmk(
-    #             model,
-    #             x,
-    #             y,
-    #             num_samples,
-    #             eps=0.1,
-    #             alpha=a,
-    #         )
+    print("\n--> Starting untargeted FGSM attack...")
+    for a in alpha_values:
+        if not os.path.isfile(os.path.join("attacks", f"adv3_fgsm_alpha_{a}.npz")):
+            print(f"\t--> Performing FGSM with alpha value {a}")
+            x_benign, correct_labels, x_adv = craft_adversarial_fgsmk(
+                model,
+                x,
+                y,
+                num_samples,
+                eps=0.1,
+                alpha=a,
+            )
 
-    #         if part == "part2":
-    #             # if using part2, input needs to be unnormalized
-    #             x_benign *= 255
-    #             x_adv *= 255
+            if part == "part2":
+                # if using part2, input needs to be unnormalized
+                x_benign *= 255
+                x_adv *= 255
 
-    #         np.savez(
-    #             os.path.join("attacks", f"adv3_fgsm_alpha_{a}.npz"),
-    #             benign_x=x_benign,
-    #             benign_y=correct_labels,
-    #             adv_x=x_adv,
-    #         )
+            np.savez(
+                os.path.join("attacks", f"adv3_fgsm_alpha_{a}.npz"),
+                benign_x=x_benign,
+                benign_y=correct_labels,
+                adv_x=x_adv,
+            )
 
-    #         print(f"\t-->Finished untargeted FGSM attack. Saved to attacks/adv3_fgsm_alpha_{a}.npz")
+            print(f"\t-->Finished untargeted FGSM attack. Saved to attacks/adv3_fgsm_alpha_{a}.npz")
 
-    #     print(f"\t--> Starting MI-FGSM with alpha value {a}")
-    #     for d in decay_values:
-    #         if os.path.isfile(os.path.join("attacks", f"adv3_mifgsm_alpha_{a}_decay_{d}.npz")):
-    #             continue
-    #         print(f"\t\t--> Performing MI FGSM with alpha value {a} and decay value {d}")
-    #         x_benign, correct_labels, x_adv = craft_adversarial_fgsmk(
-    #             model,
-    #             x,
-    #             y,
-    #             num_samples,
-    #             eps=0.1,
-    #             alpha=a,
-    #             method="mifgsm",
-    #             decay=d,
-    #         )
+        print(f"\t--> Starting MI-FGSM with alpha value {a}")
+        for d in decay_values:
+            if os.path.isfile(os.path.join("attacks", f"adv3_mifgsm_alpha_{a}_decay_{d}.npz")):
+                continue
+            print(f"\t\t--> Performing MI FGSM with alpha value {a} and decay value {d}")
+            x_benign, correct_labels, x_adv = craft_adversarial_fgsmk(
+                model,
+                x,
+                y,
+                num_samples,
+                eps=0.1,
+                alpha=a,
+                method="mifgsm",
+                decay=d,
+            )
 
-    #         if part == "part2":
-    #             # if using part2, input needs to be unnormalized
-    #             x_benign *= 255
-    #             x_adv *= 255
+            if part == "part2":
+                # if using part2, input needs to be unnormalized
+                x_benign *= 255
+                x_adv *= 255
 
-    #         np.savez(
-    #             os.path.join("attacks", f"adv3_mifgsm_alpha_{a}_decay_{d}.npz"),
-    #             benign_x=x_benign,
-    #             benign_y=correct_labels,
-    #             adv_x=x_adv,
-    #         )
+            np.savez(
+                os.path.join("attacks", f"adv3_mifgsm_alpha_{a}_decay_{d}.npz"),
+                benign_x=x_benign,
+                benign_y=correct_labels,
+                adv_x=x_adv,
+            )
 
-    #         print(f"\t\t-->Finished MI-FGSM attack. Saved to attacks/adv3_mifgsm_alpha_{a}_decay_{d}.npz")
+            print(f"\t\t-->Finished MI-FGSM attack. Saved to attacks/adv3_mifgsm_alpha_{a}_decay_{d}.npz")
 
-    #     print("\t-->Finished MI-FGSM attack.")
+        print("\t-->Finished MI-FGSM attack.")
 
     print("--> Starting Carlini Wagner attack...")
     while(True):
