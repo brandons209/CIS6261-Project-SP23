@@ -137,11 +137,11 @@ def memv_filehash(fp):
 """
 
 
-def load_model(fp):
+def load_model(fp, custom_objects: dict = None):
     hv = memv_filehash(fp)
     fg = hv[-21:-1].upper()
 
-    model = keras.models.load_model(fp)
+    model = keras.models.load_model(fp, custom_objects=custom_objects)
     model.trainable = False
 
     print("Loaded model from file ({}) -- [{}].".format(fp, fg))
