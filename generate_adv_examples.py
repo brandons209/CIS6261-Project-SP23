@@ -4,21 +4,68 @@ import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import backend as K
 import utils
+import json
 
 from tqdm import tqdm
+from keras.applications.convnext import LayerScale
 
 
 ######### Adversarial Examples #########
 def gradient_of_loss_wrt_input(model, x, y):
-    x = tf.convert_to_tensor(x, dtype=tf.float32)  # convert to tensor
-    y = tf.convert_to_tensor(y, dtype=tf.float32)  # convert to tensor
-
     loss_func = tf.keras.losses.CategoricalCrossentropy()
     with tf.GradientTape() as g:
         g.watch(x)
         loss = loss_func(y, model(x))
 
     return g.gradient(loss, x)
+
+
+def untargeted_random_noise(
+    model,
+    x_input,
+    y_input,
+    eps: float = 0.02,
+    max_iter: int = 5,
+    sigma: int = 0.05,
+    conf: float = 0.6,
+    part: str = "part1",
+):
+    x_in = tf.convert_to_tensor(x_input, dtype=tf.float32)
+    y_flat = np.argmax(y_input, axis=-1)
+    completed = np.array([False for _ in range(len(x_input))])
+    minv = np.maximum(x_input.astype(float) - eps, 0.0)
+    maxv = np.minimum(x_input.astype(float) + eps, 1.0)
+
+    for i in tqdm(range(0, max_iter)):
+        idx = np.argwhere(~completed).flatten()
+
+        x_adv = tf.gather(x_in, idx)
+
+        # create perturbation
+        r = tf.random.normal(x_adv.shape, mean=0, stddev=sigma)
+
+        # add perturbation
+        x_adv = x_adv + r
+        x_adv = tf.clip_by_value(x_adv, clip_value_min=minv[idx], clip_value_max=maxv[idx])
+        x_adv = tf.clip_by_value(x_adv, 0, 1.0)
+
+        # update input array with perturbed images
+        x_in = x_in.numpy()
+        x_in[idx] = x_adv
+        x_in = tf.identity(x_in)
+
+        # check if predicted label is the target
+        if part == "part2":
+            adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv * 255)
+        else:
+            adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv)
+
+        # check if done
+        completed[idx] = (adv_label != y_flat[idx]) & (adv_conf >= conf)
+        if completed.all():
+            break
+
+    return x_in.numpy(), y_flat
 
 
 def targeted_gradient_noise(
@@ -29,17 +76,24 @@ def targeted_gradient_noise(
     max_iter: int = 5,
     alpha: int = 0.05,
     conf: float = 0.8,
+    part: str = "part1",
 ):
     x_in = tf.convert_to_tensor(x_input, dtype=tf.float32)
     y_flat = np.argmax(y_input, axis=-1)
     completed = np.array([False for _ in range(len(x_input))])
+    minv = np.maximum(x_input.astype(float) - eps, 0.0)
+    maxv = np.minimum(x_input.astype(float) + eps, 1.0)
+
     for i in tqdm(range(0, max_iter)):
         idx = np.argwhere(~completed).flatten()
 
         x_adv = tf.gather(x_in, idx)
         y_input_nc = tf.gather(y_input, idx)
 
-        grad_vec = gradient_of_loss_wrt_input(model, x_adv, y_input_nc)
+        if part == "part2":
+            grad_vec = gradient_of_loss_wrt_input(model, x_adv * 255, y_input_nc)
+        else:
+            grad_vec = gradient_of_loss_wrt_input(model, x_adv, y_input_nc)
 
         # create perturbation
         r = tf.random.uniform(grad_vec.shape)
@@ -48,6 +102,7 @@ def targeted_gradient_noise(
 
         # add perturbation
         x_adv = x_adv + perturb
+        x_adv = tf.clip_by_value(x_adv, clip_value_min=minv[idx], clip_value_max=maxv[idx])
         x_adv = tf.clip_by_value(x_adv, 0, 1.0)
 
         # update input array with perturbed images
@@ -56,12 +111,15 @@ def targeted_gradient_noise(
         x_in = tf.identity(x_in)
 
         # set the most likely incorrect label as target
-        y_pred = model(x_adv).numpy()
+        y_pred = model.predict(x_adv, verbose=0)
         y_pred[y_flat[idx]] = 0
         target_class_number = np.argmax(y_pred, axis=-1)
 
         # check if predicted label is the target
-        adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv)
+        if part == "part2":
+            adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv * 255, dtype=tf.uint8)
+        else:
+            adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv)
 
         # check if done
         completed[idx] = (adv_label == target_class_number) & (adv_conf >= conf)
@@ -81,6 +139,7 @@ def untargeted_fgsm(
     alpha: float = 0.1,
     method: str = "fgsm",
     decay: float = 1.0,
+    part: str = "part1",
 ):
     def do_untargeted_fgsm(in_x, in_y, completed):
         # find non-completed samples to update
@@ -89,7 +148,10 @@ def untargeted_fgsm(
         in_x_nc = tf.gather(in_x, idx)
         in_y_nc = tf.gather(in_y, idx)
 
-        grad_vec = gradient_of_loss_wrt_input(model, in_x_nc, in_y_nc)
+        if part == "part2":
+            grad_vec = gradient_of_loss_wrt_input(model, in_x_nc * 255, in_y_nc)
+        else:
+            grad_vec = gradient_of_loss_wrt_input(model, in_x_nc, in_y_nc)
 
         adv_x = in_x_nc + alpha * tf.sign(grad_vec)
         adv_x = tf.clip_by_value(adv_x, 0, 1.0)
@@ -102,7 +164,10 @@ def untargeted_fgsm(
 
     def mi_fgsm(in_x, in_y, prev_grad, completed):
         idx = np.argwhere(~completed).flatten()
-        full_grad_vec = gradient_of_loss_wrt_input(model, in_x, in_y)
+        if part == "part2":
+            full_grad_vec = gradient_of_loss_wrt_input(model, in_x * 255, in_y)
+        else:
+            full_grad_vec = gradient_of_loss_wrt_input(model, in_x, in_y)
 
         in_x_nc = tf.gather(in_x, idx)
         if not isinstance(prev_grad, int):
@@ -140,7 +205,10 @@ def untargeted_fgsm(
         adv_x = tf.clip_by_value(adv_x, clip_value_min=minv, clip_value_max=maxv)
 
         # check if predicted label is the target
-        adv_label, adv_conf = utils.pred_label_and_conf_model(model, adv_x)
+        if part == "part2":
+            adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv * 255)
+        else:
+            adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv)
 
         # check if done
         completed = (adv_label != y) & (adv_conf >= conf)
@@ -152,22 +220,14 @@ def untargeted_fgsm(
 
 def craft_adversarial_fgsmk(
     model,
-    x_aux,
-    y_aux,
-    num_adv_samples,
+    x_input,
+    y_input,
     eps,
     alpha: float = 0.01,
     method: str = "fgsm",
     decay: float = 1.0,
+    part: str = "part1",
 ):
-    idx = np.random.choice(np.arange(len(x)), size=num_adv_samples)
-
-    x_input = x_aux[idx]
-    y_input = y_aux[idx]
-
-    # keep track of the benign examples
-    x_benign_samples = x_input.copy()
-
     correct_labels = np.argmax(y_input, axis=-1)
 
     if method == "fgsm":
@@ -175,25 +235,27 @@ def craft_adversarial_fgsmk(
             model,
             x_input,
             correct_labels,
-            max_iter=100,
+            max_iter=20,
             eps=eps,
             alpha=alpha,
             method=method,
             decay=decay,
+            part=part,
         )
     elif method == "mifgsm":
         x_adv_samples = untargeted_fgsm(
             model,
             x_input,
             correct_labels,
-            max_iter=100,
+            max_iter=20,
             eps=eps,
             alpha=alpha,
             method=method,
             decay=decay,
+            part=part,
         )
 
-    return x_benign_samples, correct_labels, x_adv_samples
+    return x_adv_samples, correct_labels
 
 
 
@@ -204,7 +266,7 @@ def carlini_wagner(model, x, y,c = 10.0,lr = 0.01,initial_const = 0.001, max_ite
     x_benign.assign(x)
 
     # compute the logits for the original (benign) examples
-    logits_benign = model(x_benign)
+    logits_benign = model.predict(x_benign, verbose=0)
 
     # compute the correct labels for the original (benign) examples
     correct_labels = tf.argmax(logits_benign, axis=1)
@@ -266,8 +328,13 @@ def carlini_wagner(model, x, y,c = 10.0,lr = 0.01,initial_const = 0.001, max_ite
 
 
 if __name__ == "__main__":
-    num_samples = 1000
-    alpha_values = [0.001, 0.005, 0.01, 0.025, 0.05, 0.075]
+    # having issues with vram on gpu, so force CPU usage
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+    num_train_samples = 2500
+    num_test_samples = 1000
+
+    alpha_values = [0.002, 0.005, 0.01, 0.025, 0.05, 0.075]
     decay_values = [
         0.001,
         0.01,
@@ -278,9 +345,12 @@ if __name__ == "__main__":
         2.0,
     ]
     part = "part1"
-    model_path = "./target-model.h5"
+    model_path = "./target-model.h5"  # "./target-model.h5"
 
-    model, _ = utils.load_model(model_path)
+    if part == "part2":
+        model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
+    else:
+        model, _ = utils.load_model(model_path)
 
     if part == "part1":
         train_x, train_y, test_x, test_y, val_x, val_y, labels = utils.load_data()
@@ -295,146 +365,176 @@ if __name__ == "__main__":
     print(y.shape)
     print(np.max(x))
 
-    print(f"Generating {num_samples} adversial examples per attack for {part}.")
+    print(f"Generating {num_train_samples} adversial train and {num_test_samples} test examples per attack for {part}.")
 
     print("--> Starting targeted gradient attack...")
 
-    for a in alpha_values:
-        idx = np.random.choice(np.arange(len(x)), size=num_samples)
-        # don't recreate if it already exists
-        if os.path.isfile(os.path.join("attacks", f"adv2_gradient_attack_alpha_{a}.npz")):
-            continue
+    if not os.path.exists(f"{part}_adv_indicies.json"):
+        idx = np.arange(len(x))
+        train_idx = np.random.choice(idx, size=num_train_samples)
+        # only select test indicies that arent in train
+        mask = np.ones(len(idx), bool)
+        mask[train_idx] = 0
+        test_idx = np.random.choice(idx[mask], size=num_train_samples)
 
-        x_benign = x[idx]
-        x_adv, correct_labels = targeted_gradient_noise(
-            model,
-            x[idx],
-            y[idx],
-            max_iter=100,
-            alpha=a,
-            eps=0.1,
-            conf=0.7,
-        )
+        idxes = {"train": train_idx.tolist(), "test": test_idx.tolist()}
+        with open(f"{part}_adv_indicies.json", "w") as f:
+            json.dump(idxes, f)
+    else:
+        with open(f"{part}_adv_indicies.json", "r") as f:
+            idxes = json.load(f)
 
-        if part == "part2":
-            # if using part2, input needs to be unnormalized
-            x_benign *= 255
-            x_adv *= 255
-
-        np.savez(
-            os.path.join("attacks", f"adv2_gradient_attack_alpha_{a}.npz"),
-            benign_x=x_benign,
-            benign_y=correct_labels,
-            adv_x=x_adv,
-        )
-
-        print(f"\t--> Finished targeted gradient attack. Saved to attacks/adv2_gradient_attack_alpha_{a}.npz")
-
-    print("\n--> Starting untargeted FGSM attack...")
-    for a in alpha_values:
-        if not os.path.isfile(os.path.join("attacks", f"adv3_fgsm_alpha_{a}.npz")):
-            print(f"\t--> Performing FGSM with alpha value {a}")
-            x_benign, correct_labels, x_adv = craft_adversarial_fgsmk(
-                model,
-                x,
-                y,
-                num_samples,
-                eps=0.1,
-                alpha=a,
-            )
-
-            if part == "part2":
-                # if using part2, input needs to be unnormalized
-                x_benign *= 255
-                x_adv *= 255
-
-            np.savez(
-                os.path.join("attacks", f"adv3_fgsm_alpha_{a}.npz"),
-                benign_x=x_benign,
-                benign_y=correct_labels,
-                adv_x=x_adv,
-            )
-
-            print(f"\t-->Finished untargeted FGSM attack. Saved to attacks/adv3_fgsm_alpha_{a}.npz")
-
-        print(f"\t--> Starting MI-FGSM with alpha value {a}")
-        for d in decay_values:
-            if os.path.isfile(os.path.join("attacks", f"adv3_mifgsm_alpha_{a}_decay_{d}.npz")):
+    for name, idx in idxes.items():
+        for a in alpha_values:
+            # don't recreate if it already exists
+            if os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv2_gradient_attack_alpha_{a}.npz")):
                 continue
-            print(f"\t\t--> Performing MI FGSM with alpha value {a} and decay value {d}")
-            x_benign, correct_labels, x_adv = craft_adversarial_fgsmk(
+
+            x_benign = x[idx]
+            x_adv, correct_labels = targeted_gradient_noise(
                 model,
-                x,
-                y,
-                num_samples,
-                eps=0.1,
+                x[idx],
+                y[idx],
+                max_iter=20,
                 alpha=a,
-                method="mifgsm",
-                decay=d,
+                eps=0.05,
+                conf=0.7,
+                part=part,
             )
 
-            if part == "part2":
-                # if using part2, input needs to be unnormalized
-                x_benign *= 255
-                x_adv *= 255
-
             np.savez(
-                os.path.join("attacks", f"adv3_mifgsm_alpha_{a}_decay_{d}.npz"),
+                os.path.join("attacks", f"{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"),
                 benign_x=x_benign,
                 benign_y=correct_labels,
                 adv_x=x_adv,
             )
 
-            print(f"\t\t-->Finished MI-FGSM attack. Saved to attacks/adv3_mifgsm_alpha_{a}_decay_{d}.npz")
+            print(
+                f"\t--> Finished targeted gradient attack. Saved to attacks/{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"
+            )
 
-        print("\t-->Finished MI-FGSM attack.")
+        print("\n--> Starting untargeted random noise attack...")
+        for a in alpha_values:
+            # don't recreate if it already exists
+            if os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv4_noise_attack_sigma_{a}.npz")):
+                continue
 
+            x_benign = x[idx]
+            x_adv, correct_labels = untargeted_random_noise(
+                model,
+                x[idx],
+                y[idx],
+                max_iter=150,
+                sigma=a,
+                eps=0.05,
+                conf=0.5,
+                part=part,
+            )
+
+            np.savez(
+                os.path.join("attacks", f"{part}_{name}_adv4_noise_attack_sigma_{a}.npz"),
+                benign_x=x_benign,
+                benign_y=correct_labels,
+                adv_x=x_adv,
+            )
+
+            print(
+                f"\t--> Finished targeted gradient attack. Saved to attacks/{part}_{name}_adv4_noise_attack_sigma_{a}.npz"
+            )
+
+        print("\n--> Starting untargeted FGSM attack...")
+        for a in alpha_values:
+            if not os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv3_fgsm_alpha_{a}.npz")):
+                print(f"\t--> Performing FGSM with alpha value {a}")
+                x_benign = x[idx]
+                x_adv, correct_labels = craft_adversarial_fgsmk(
+                    model,
+                    x[idx],
+                    y[idx],
+                    eps=0.05,
+                    alpha=a,
+                    part=part,
+                )
+
+                np.savez(
+                    os.path.join("attacks", f"{part}_{name}_adv3_fgsm_alpha_{a}.npz"),
+                    benign_x=x_benign,
+                    benign_y=correct_labels,
+                    adv_x=x_adv,
+                )
+
+                print(f"\t-->Finished untargeted FGSM attack. Saved to attacks/{part}_{name}_adv3_fgsm_alpha_{a}.npz")
+
+            """
+            print(f"\t--> Starting MI-FGSM with alpha value {a}")
+            for d in decay_values:
+                if os.path.isfile(os.path.join("attacks", f"{name}_adv3_mifgsm_alpha_{a}_decay_{d}.npz")):
+                    continue
+                print(f"\t\t--> Performing MI FGSM with alpha value {a} and decay value {d}")
+                x_benign = x[idx]
+                x_adv, correct_labels = craft_adversarial_fgsmk(
+                    model,
+                    x[idx],
+                    y[idx],
+                    eps=0.05,
+                    alpha=a,
+                    method="mifgsm",
+                    decay=d,
+                )
+
+                np.savez(
+                    os.path.join("attacks", f"{name}_adv3_mifgsm_alpha_{a}_decay_{d}.npz"),
+                    benign_x=x_benign,
+                    benign_y=correct_labels,
+                    adv_x=x_adv,
+                )
+
+                print(f"\t\t-->Finished MI-FGSM attack. Saved to attacks/{name}_adv3_mifgsm_alpha_{a}_decay_{d}.npz")
+
+            print("\t-->Finished MI-FGSM attack.")
+            """
     print("--> Starting Carlini Wagner attack...")
-    while(True):
-        c = 10.0
-        lr = 0.01
-        initial_const = 0.001
-        max_iter=100
-        targeted=True
-        confidence=0.0
+    c_array = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 75.0, 100.0]
+    lr_array = [0.001, 0.005, 0.01, 0.02, 0.03, 0.05, 0.07, 0.08, 0.09, 0.1]
 
-        # max_iter: The maximum number of iterations to run the attack.
-        # targeted: A boolean indicating whether to perform a targeted or untargeted attack.
-        # confidence: The confidence level for the attack, which affects the strength of the attack.
-        # c: A constant used to weight the l2 distance term in the loss function.
-        # lr: The learning rate for the optimizer.
-        # initial_const: The initial value for the constant used to weight the loss term in the loss function.
+    for c in c_array:
+        for lr in lr_array:
+            initial_const = 0.001
+            max_iter=100
+            targeted=True
+            confidence=0.0
 
-        # c: Typically, c can range from 0.1 to 100.0. A higher value of c means that the algorithm prioritizes minimizing the distortion (L2 distance) between the adversarial examples and the original examples. On the other hand, a lower value of c means that the algorithm prioritizes minimizing the loss function (i.e., maximizing the probability of the target class for a targeted attack or minimizing the probability of the true class for an untargeted attack).
-        # lr: The learning rate lr typically ranges from 0.001 to 0.1. This value controls how much the adversarial examples are updated in each iteration of the optimization process
+            # max_iter: The maximum number of iterations to run the attack.
+            # targeted: A boolean indicating whether to perform a targeted or untargeted attack.
+            # confidence: The confidence level for the attack, which affects the strength of the attack.
+            # c: A constant used to weight the l2 distance term in the loss function.
+            # lr: The learning rate for the optimizer.
+            # initial_const: The initial value for the constant used to weight the loss term in the loss function.
+
+            # c: Typically, c can range from 0.1 to 100.0. A higher value of c means that the algorithm prioritizes minimizing the distortion (L2 distance) between the adversarial examples and the original examples. On the other hand, a lower value of c means that the algorithm prioritizes minimizing the loss function (i.e., maximizing the probability of the target class for a targeted attack or minimizing the probability of the true class for an untargeted attack).
+            # lr: The learning rate lr typically ranges from 0.001 to 0.1. This value controls how much the adversarial examples are updated in each iteration of the optimization process
 
 
-        # don't recreate if it already exists
-        if os.path.isfile(os.path.join("attacks", f"adv4_carlini_wagner_c_{c}_lr_{lr}.npz")):
-            break
+            # don't recreate if it already exists
+            if os.path.isfile(os.path.join("attacks", f"adv4_carlini_wagner_c_{c}_lr_{lr}.npz")):
+                break
 
-        x_benign, correct_labels, x_adv = carlini_wagner(
-            model,
-            x,
-            y,
-            c ,
-            lr,
-            initial_const, 
-            max_iter, 
-            targeted, 
-            confidence,
-        )
+            x_benign, correct_labels, x_adv = carlini_wagner(
+                model,
+                x,
+                y,
+                c ,
+                lr,
+                initial_const, 
+                max_iter, 
+                targeted, 
+                confidence,
+            )
+            np.savez(
+                os.path.join("attacks", f"adv4_carlini_wagner_c_{c}_lr_{lr}.npz"),
+                benign_x=x_benign,
+                benign_y=correct_labels,
+                adv_x=x_adv,
+            )
 
-        if part == "part2":
-            # if using part2, input needs to be unnormalized
-            x_benign *= 255
-            x_adv *= 255
-
-        np.savez(
-            os.path.join("attacks", f"adv4_carlini_wagner_c_{c}_lr_{lr}.npz"),
-            benign_x=x_benign,
-            benign_y=correct_labels,
-            adv_x=x_adv,
-        )
-
-        print(f"\t--> Finished Carlini Wagner attack. Saved to attacks/adv4_carlini_wagner_c_{c}_lr_{lr}.npz")
+            print(f"\t--> Finished Carlini Wagner attack. Saved to attacks/adv4_carlini_wagner_c_{c}_lr_{lr}.npz")

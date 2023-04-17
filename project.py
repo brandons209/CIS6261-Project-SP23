@@ -17,6 +17,7 @@ from sklearn.metrics import confusion_matrix
 from scipy.ndimage import median_filter, convolve
 from glob import glob
 from skimage.util import random_noise
+from keras.applications.convnext import LayerScale
 
 # we'll use tensorflow and keras for neural networks
 import tensorflow as tf
@@ -29,7 +30,7 @@ import utils  # we need this
 
 ## Basic prediction function
 def basic_predict(model, x):
-    return model(x)
+    return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
 
 
 def randomized_smoothing_predict(
@@ -46,13 +47,21 @@ def randomized_smoothing_predict(
 
     if raw:
         return x_noisy_clipped
-    return model(x_noisy_clipped)
+    return (
+        model.predict(x_noisy_clipped, verbose=0)
+        if part != "part2"
+        else model.predict(x_noisy_clipped * 255, verbose=0)
+    )
 
 
 def distort_output_predict(model, x, y: np.array = None, amount=0.05):
     if y is not None:
         return y * (1 + amount)
-    return model(x) * (1 + amount)
+    return (
+        model.predict(x, verbose=0) * (1 + amount)
+        if part != "part2"
+        else model.predict(x * 255, verbose=0) * (1 + amount)
+    )
 
 
 def salt_and_pepper_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
@@ -60,7 +69,7 @@ def salt_and_pepper_noise_predict(model, x, amount: float = 0.05, raw: bool = Fa
 
     if raw:
         return x_noisy
-    return model(x_noisy)
+    return model.predict(x_noisy, verbose=0) if part != "part2" else model.predict(x_noisy * 255, verbose=0)
 
 
 def speckle_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
@@ -68,23 +77,16 @@ def speckle_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
 
     if raw:
         return x_noisy
-    return model(x_noisy)
-
-
-def add_multiplicative_noise(x, noise_factor=0.05, raw: bool = False):
-    noise = np.random.normal(loc=1.0, scale=noise_factor, size=x.shape)
-    x_noisy = x * noise
-    x_noisy = np.clip(x_noisy, 0, 1)
-    if raw:
-        return x_noisy
-    return model(x_noisy)
+    return model.predict(x_noisy, verbose=0) if part != "part2" else model.predict(x_noisy * 255, verbose=0)
 
 
 def local_medium_smoothing_predict(model, x, kernel_size: tuple = (2, 2, 2), mode: str = "reflect", raw: bool = False):
     filtered_image = median_filter(x, size=(1, *kernel_size), mode=mode)
     if raw:
         return filtered_image
-    return model(filtered_image)
+    return (
+        model.predict(filtered_image, verbose=0) if part != "part2" else model.predict(filtered_image * 255, verbose=0)
+    )
 
 
 def color_bit_depth_reduction_predict(model, x, bit_depth: int = 8, raw: bool = False):
@@ -93,7 +95,7 @@ def color_bit_depth_reduction_predict(model, x, bit_depth: int = 8, raw: bool = 
     x = x.astype(float) / bit_reduction
     if raw:
         return x
-    return model(x)
+    return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
 
 
 def smoothing_convolution_predict(model, x, filter_type: str = "smooth", raw: bool = False):
@@ -150,7 +152,7 @@ def smoothing_convolution_predict(model, x, filter_type: str = "smooth", raw: bo
 
     if raw:
         return x
-    return model(x)
+    return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
 
 
 def mean_denoising_predict(model, x, strength: float = 3, raw: bool = False):
@@ -172,7 +174,7 @@ def mean_denoising_predict(model, x, strength: float = 3, raw: bool = False):
 
     if raw:
         return x
-    return model(x)
+    return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
 
 
 ######### Membership Inference Attacks (MIAs) #########
@@ -194,7 +196,9 @@ def mia_attack(predict_fn, x):
 ######### Main() #########
 
 if __name__ == "__main__":
-    model_path = "./target-model.h5"
+    model_path = "./part2_model_best.h5"  # "./target-model.h5"
+    global part
+    part = "part2"
 
     # Let's check our software versions
     print("### Python version: " + __import__("sys").version)
@@ -220,13 +224,18 @@ if __name__ == "__main__":
     #### load the data
     print("\n------------ Loading Data & Model ----------")
 
-    train_x, train_y, test_x, test_y, val_x, val_y, labels = utils.load_data()
+    train_x, train_y, test_x, test_y, _, _, labels = utils.load_data()
+    if part == "part2":
+        (train_x, train_y), (test_x, test_y) = keras.datasets.cifar10.load_data()
+        train_x = train_x.astype(float) / 255
+        test_x = test_x.astype(float) / 255
+
     num_classes = len(labels)
     assert num_classes == 10  # cifar10
 
     ### load the target model (the one we want to protect)
 
-    model, _ = utils.load_model(model_path)
+    model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
     print(f"Loaded model: {model.name}")
     # model.summary()  ## you can uncomment this to check the model architecture (ResNet)
 
@@ -281,7 +290,8 @@ if __name__ == "__main__":
         "Poisson_Noise 0.02 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.02, noise_type="poisson"),
         "Poisson_Noise 0.03 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.03, noise_type="poisson"),
         "Poisson_Noise 0.04 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.04, noise_type="poisson"),
-        # "Local Median Smoothing Filter": lambda x: local_medium_smoothing_predict(model, x),
+        # "Local Median Smoothing Filter 2x2": lambda x: local_medium_smoothing_predict(model, x),
+        "Local Median Smoothing Filter 3x3": lambda x: local_medium_smoothing_predict(model, x, kernel_size=(3, 3, 3)),
         # "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=4),
         # "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=2),
         # "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(model, x, strength=0.8),
@@ -358,7 +368,7 @@ if __name__ == "__main__":
         advexp_fps.append(("Adversarial examples attack0", os.path.join("attacks", "advexp0.npz")))
         advexp_fps.append(("Adversarial examples attack1", os.path.join("attacks", "advexp1.npz")))
         # our created attacks
-        for attack in sorted(glob(os.path.join("attacks", "*.npz"))):
+        for attack in sorted(glob(os.path.join("attacks", f"{part}*.npz"))):
             if "advexp0" in attack or "advexp1" in attack:
                 continue
 
