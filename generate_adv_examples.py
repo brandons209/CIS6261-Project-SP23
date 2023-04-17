@@ -330,11 +330,6 @@ if __name__ == "__main__":
                 part=part,
             )
 
-            if part == "part2":
-                # if using part2, input needs to be unnormalized
-                x_benign *= 255
-                x_adv *= 255
-
             np.savez(
                 os.path.join("attacks", f"{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"),
                 benign_x=x_benign,
@@ -364,11 +359,6 @@ if __name__ == "__main__":
                 part=part,
             )
 
-            if part == "part2":
-                # if using part2, input needs to be unnormalized
-                x_benign *= 255
-                x_adv *= 255
-
             np.savez(
                 os.path.join("attacks", f"{part}_{name}_adv4_noise_attack_sigma_{a}.npz"),
                 benign_x=x_benign,
@@ -393,11 +383,6 @@ if __name__ == "__main__":
                     alpha=a,
                     part=part,
                 )
-
-                if part == "part2":
-                    # if using part2, input needs to be unnormalized
-                    x_benign *= 255
-                    x_adv *= 255
 
                 np.savez(
                     os.path.join("attacks", f"{part}_{name}_adv3_fgsm_alpha_{a}.npz"),
@@ -424,11 +409,6 @@ if __name__ == "__main__":
                     method="mifgsm",
                     decay=d,
                 )
-
-                if part == "part2":
-                    # if using part2, input needs to be unnormalized
-                    x_benign *= 255
-                    x_adv *= 255
 
                 np.savez(
                     os.path.join("attacks", f"{name}_adv3_mifgsm_alpha_{a}_decay_{d}.npz"),
