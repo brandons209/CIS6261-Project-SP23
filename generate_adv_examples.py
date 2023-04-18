@@ -537,4 +537,4 @@ if __name__ == "__main__":
                 adv_x=x_adv,
             )
 
-            print(f"\t--> Finished Carlini Wagner attack. Saved to attacks/adv4_carlini_wagner_c_{c}_lr_{lr}.npz")
+    print(f"\t--> Finished Carlini Wagner attack. Saved to attacks/adv4_carlini_wagner_c_{c}_lr_{lr}.npz")
