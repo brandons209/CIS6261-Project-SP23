@@ -119,6 +119,15 @@ def load_data(fp="./data.npz"):
     return train_x, train_y, test_x, test_y, val_x, val_y, labels
 
 
+def keras_load_data():
+    (train_x, train_y), (test_x, test_y) = keras.datasets.cifar10.load_data()
+
+    train_y = keras.utils.to_categorical(train_y, num_classes=10)
+    test_y = keras.utils.to_categorical(test_y, num_classes=10)
+
+    return train_x, train_y, test_x, test_y
+
+
 import hashlib
 
 
@@ -142,7 +151,7 @@ def load_model(fp, custom_objects: dict = None):
     fg = hv[-21:-1].upper()
 
     model = keras.models.load_model(fp, custom_objects=custom_objects)
-    model.trainable = False
+    # model.trainable = False
 
     print("Loaded model from file ({}) -- [{}].".format(fp, fg))
     return model, hv

@@ -11,13 +11,17 @@ from keras.applications.convnext import LayerScale
 
 
 ######### Adversarial Examples #########
-def gradient_of_loss_wrt_input(model, x, y):
+def gradient_of_loss_wrt_input(model, x, y, batch_size: int = 32):
     loss_func = tf.keras.losses.CategoricalCrossentropy()
-    with tf.GradientTape() as g:
-        g.watch(x)
-        loss = loss_func(y, model(x))
+    grads = []
+    for i in range(0, len(x), batch_size):
+        with tf.GradientTape() as g:
+            data = tf.identity(x[i : i + batch_size])
+            g.watch(data)
+            loss = loss_func(y[i : i + batch_size], model(data))
+        grads.append(g.gradient(loss, data))
 
-    return g.gradient(loss, x)
+    return tf.concat(grads, axis=0)
 
 
 def untargeted_random_noise(
@@ -117,7 +121,7 @@ def targeted_gradient_noise(
 
         # check if predicted label is the target
         if part == "part2":
-            adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv * 255, dtype=tf.uint8)
+            adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv * 255)
         else:
             adv_label, adv_conf = utils.pred_label_and_conf_model(model, x_adv)
 
@@ -260,7 +264,7 @@ def craft_adversarial_fgsmk(
 
 if __name__ == "__main__":
     # having issues with vram on gpu, so force CPU usage
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    # os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
     num_train_samples = 2500
     num_test_samples = 1000
@@ -275,8 +279,8 @@ if __name__ == "__main__":
         1.5,
         2.0,
     ]
-    part = "part1"
-    model_path = "./target-model.h5"  # "./target-model.h5"
+    part = "part2"
+    model_path = "./part2_model_best.h5"  # "./target-model.h5"
 
     if part == "part2":
         model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
@@ -288,7 +292,7 @@ if __name__ == "__main__":
         x = np.concatenate([train_x, test_x, val_x])
         y = np.concatenate([train_y, test_y, val_y])
     elif part == "part2":
-        (train_x, train_y), (test_x, test_y) = keras.datasets.cifar10.load_data()
+        train_x, train_y, test_x, test_y = utils.keras_load_data()
         x = np.concatenate([train_x, test_x]).astype(float) / 255
         y = np.concatenate([train_y, test_y])
 

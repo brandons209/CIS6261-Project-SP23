@@ -226,7 +226,7 @@ if __name__ == "__main__":
 
     train_x, train_y, test_x, test_y, _, _, labels = utils.load_data()
     if part == "part2":
-        (train_x, train_y), (test_x, test_y) = keras.datasets.cifar10.load_data()
+        train_x, train_y, test_x, test_y = utils.keras_load_data()
         train_x = train_x.astype(float) / 255
         test_x = test_x.astype(float) / 255
 

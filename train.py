@@ -112,7 +112,7 @@ def get_model(part: str, model_path: str = None):
         model = keras.Model(inputs=model.input, outputs=fc, name="part2_model")
 
         # compile model for training/testing
-        model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+        model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
 
         return model
     elif part == "ae":
@@ -176,11 +176,11 @@ if __name__ == "__main__":
     if part == "part1":
         train_x, train_y, test_x, test_y, val_x, val_y, labels = utils.load_data()
     elif part == "part2":
-        (train_x, train_y), (test_x, test_y) = keras.datasets.cifar10.load_data()
+        train_x, train_y, test_x, test_y = utils.keras_load_data()
         # split testing data into validation and testing
         test_x, val_x, test_y, val_y = train_test_split(test_x, test_y, test_size=0.5)
     elif part == "ae" or part == "vae":
-        (train_x, train_y), (test_x, test_y) = keras.datasets.cifar10.load_data()
+        train_x, train_y, test_x, test_y = utils.keras_load_data()
         # convert to values in [0, 1]
         train_x = train_x.astype(float) / 255
         test_x = test_x.astype(float) / 255
