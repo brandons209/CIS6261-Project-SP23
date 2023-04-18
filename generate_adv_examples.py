@@ -320,33 +320,33 @@ if __name__ == "__main__":
             idxes = json.load(f)
 
     for name, idx in idxes.items():
-        for a in alpha_values:
-            # don't recreate if it already exists
-            if os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv2_gradient_attack_alpha_{a}.npz")):
-                continue
+        # for a in alpha_values:
+        #     # don't recreate if it already exists
+        #     if os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv2_gradient_attack_alpha_{a}.npz")):
+        #         continue
 
-            x_benign = x[idx]
-            x_adv, correct_labels = targeted_gradient_noise(
-                model,
-                x[idx],
-                y[idx],
-                max_iter=20,
-                alpha=a,
-                eps=0.05,
-                conf=0.7,
-                part=part,
-            )
+        #     x_benign = x[idx]
+        #     x_adv, correct_labels = targeted_gradient_noise(
+        #         model,
+        #         x[idx],
+        #         y[idx],
+        #         max_iter=20,
+        #         alpha=a,
+        #         eps=0.05,
+        #         conf=0.7,
+        #         part=part,
+        #     )
 
-            np.savez(
-                os.path.join("attacks", f"{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"),
-                benign_x=x_benign,
-                benign_y=correct_labels,
-                adv_x=x_adv,
-            )
+        #     np.savez(
+        #         os.path.join("attacks", f"{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"),
+        #         benign_x=x_benign,
+        #         benign_y=correct_labels,
+        #         adv_x=x_adv,
+        #     )
 
-            print(
-                f"\t--> Finished targeted gradient attack. Saved to attacks/{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"
-            )
+        #     print(
+        #         f"\t--> Finished targeted gradient attack. Saved to attacks/{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"
+        #     )
 
         print("\n--> Starting untargeted random noise attack...")
         for a in alpha_values:
