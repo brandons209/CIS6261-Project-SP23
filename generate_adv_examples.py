@@ -279,8 +279,8 @@ if __name__ == "__main__":
         1.5,
         2.0,
     ]
-    part = "part2"
-    model_path = "./part2_model_best.h5"  # "./target-model.h5"
+    part = "part1"
+    model_path = "./target-model.h5"
 
     if part == "part2":
         model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
@@ -373,9 +373,7 @@ if __name__ == "__main__":
                 adv_x=x_adv,
             )
 
-            print(
-                f"\t--> Finished targeted gradient attack. Saved to attacks/{part}_{name}_adv4_noise_attack_sigma_{a}.npz"
-            )
+            print(f"\t--> Finished random noise attack. Saved to attacks/{part}_{name}_adv4_noise_attack_sigma_{a}.npz")
 
         print("\n--> Starting untargeted FGSM attack...")
         for a in alpha_values:
