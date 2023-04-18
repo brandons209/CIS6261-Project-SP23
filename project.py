@@ -177,6 +177,14 @@ def mean_denoising_predict(model, x, strength: float = 3, raw: bool = False):
     return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
 
 
+def defense_distillation_autoencoder(model, x, autoencoder_path: str = "ae_defense_best.h5"):
+    ae, _ = utils.load_model(autoencoder_path)
+
+    distilled_x = ae.predict(x, verbose=0)
+
+    return model.predict(distilled_x, verbose=0) if part != "part2" else model.predict(distilled_x * 255, verbose=0)
+
+
 ######### Membership Inference Attacks (MIAs) #########
 
 
@@ -226,7 +234,7 @@ if __name__ == "__main__":
 
     train_x, train_y, test_x, test_y, _, _, labels = utils.load_data()
     if part == "part2":
-        (train_x, train_y), (test_x, test_y) = keras.datasets.cifar10.load_data()
+        train_x, train_y, test_x, test_y = utils.keras_load_data()
         train_x = train_x.astype(float) / 255
         test_x = test_x.astype(float) / 255
 
@@ -273,9 +281,9 @@ if __name__ == "__main__":
         # "Randomized Laplace 1.0 sigma": lambda x: randomized_smoothing_predict(
         #    model, x, sigma=1.0, noise_type="Laplace"
         # ),
-        "Label distortion 0.05 sigma": lambda x: distort_output_predict(model, x),
-        "Label distortion 0.1 sigma": lambda x: distort_output_predict(model, x, amount=0.1),
-        "Label distortion 0.2 sigma": lambda x: distort_output_predict(model, x, amount=0.2),
+        # "Label distortion 0.05 sigma": lambda x: distort_output_predict(model, x),
+        # "Label distortion 0.1 sigma": lambda x: distort_output_predict(model, x, amount=0.1),
+        # "Label distortion 0.2 sigma": lambda x: distort_output_predict(model, x, amount=0.2),
         # "Salt and Pepper Noise 0.01": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.01),
         # "Salt and Pepper Noise 0.02": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.02),
         # "Salt and Pepper Noise 0.05": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.05),
@@ -286,12 +294,12 @@ if __name__ == "__main__":
         # "Speckle Noise 0.05": lambda x: speckle_noise_predict(model, x, amount=0.05),
         # "Speckle Noise 0.07": lambda x: speckle_noise_predict(model, x, amount=0.07),
         # "Speckle Noise 0.09": lambda x: speckle_noise_predict(model, x, amount=0.09),
-        "Poisson_Noise 0.01 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.01, noise_type="poisson"),
-        "Poisson_Noise 0.02 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.02, noise_type="poisson"),
-        "Poisson_Noise 0.03 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.03, noise_type="poisson"),
-        "Poisson_Noise 0.04 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.04, noise_type="poisson"),
+        # "Poisson_Noise 0.01 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.01, noise_type="poisson"),
+        # "Poisson_Noise 0.02 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.02, noise_type="poisson"),
+        # "Poisson_Noise 0.03 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.03, noise_type="poisson"),
+        # "Poisson_Noise 0.04 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.04, noise_type="poisson"),
         # "Local Median Smoothing Filter 2x2": lambda x: local_medium_smoothing_predict(model, x),
-        "Local Median Smoothing Filter 3x3": lambda x: local_medium_smoothing_predict(model, x, kernel_size=(3, 3, 3)),
+        # "Local Median Smoothing Filter 3x3": lambda x: local_medium_smoothing_predict(model, x, kernel_size=(3, 3, 3)),
         # "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=4),
         # "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=2),
         # "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(model, x, strength=0.8),
@@ -305,6 +313,7 @@ if __name__ == "__main__":
         # "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen"),
         # "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail"),
         # "Blur Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="blur"),
+        "Defense Autoencoder": lambda x: defense_distillation_autoencoder(model, x),
     }
 
     for i, predict_fn in enumerate(predict_fns.items()):
@@ -368,7 +377,7 @@ if __name__ == "__main__":
         advexp_fps.append(("Adversarial examples attack0", os.path.join("attacks", "advexp0.npz")))
         advexp_fps.append(("Adversarial examples attack1", os.path.join("attacks", "advexp1.npz")))
         # our created attacks
-        for attack in sorted(glob(os.path.join("attacks", f"{part}*.npz"))):
+        for attack in sorted(glob(os.path.join("attacks", f"*.npz"))):
             if "advexp0" in attack or "advexp1" in attack:
                 continue
 
