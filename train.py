@@ -8,10 +8,10 @@ import tensorflow as tf
 import tensorflow.keras as keras
 from keras import layers
 from glob import glob
+from keras.applications.convnext import LayerScale
 
 import utils  # we need this
 import os
-import json
 
 
 # from https://keras.io/examples/generative/vae/
@@ -137,6 +137,9 @@ def get_model(part: str, model_path: str = None):
         vae = VAE()
         vae.compile(optimizer=keras.optimizers.Adam())
         return vae
+    elif "finetune" in part:
+        model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
+        return model
     else:
         return None
 
@@ -171,7 +174,7 @@ def train_model(model, train_data: tuple, validation_data: tuple, test_data: tup
 
 if __name__ == "__main__":
     part = "ae_finetune"
-    model = get_model(part)
+    model = get_model(part, model_path="ae_defense_best.h5")
 
     if part == "part1":
         train_x, train_y, test_x, test_y, val_x, val_y, labels = utils.load_data()
