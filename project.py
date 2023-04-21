@@ -377,7 +377,7 @@ if __name__ == "__main__":
         advexp_fps.append(("Adversarial examples attack0", os.path.join("attacks", "advexp0.npz")))
         advexp_fps.append(("Adversarial examples attack1", os.path.join("attacks", "advexp1.npz")))
         # our created attacks
-        for attack in sorted(glob(os.path.join("attacks", f"*.npz"))):
+        for attack in sorted(glob(os.path.join("attacks", f"part*test*.npz"))):
             if "advexp0" in attack or "advexp1" in attack:
                 continue
 
