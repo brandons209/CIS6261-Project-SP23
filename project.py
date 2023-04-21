@@ -15,6 +15,7 @@ import sklearn
 import cv2
 from sklearn.metrics import confusion_matrix
 from scipy.ndimage import median_filter, convolve
+from scipy import stats
 from glob import glob
 from skimage.util import random_noise
 from keras.applications.convnext import LayerScale
@@ -197,22 +198,29 @@ def simple_conf_threshold_mia(predict_fn, x, thresh=0.9999):
 
 #### NEW MIA attacks.
 def compute_loss(y_true, y_pred):
-    loss = keras.backend.categorical_crossentropy(tf.convert_to_tensor(y_true), tf.convert_to_tensor(y_pred), from_logits=False)
+    loss = keras.backend.categorical_crossentropy(
+        tf.convert_to_tensor(y_true),
+        tf.convert_to_tensor(y_pred),
+        from_logits=False,
+    )
     return keras.backend.eval(loss)
-    
-    
-def do_loss_attack(x_targets, y_targets, predict_fn, loss_fn, mean_train_loss, std_train_loss, mean_test_loss, std_test_loss):
+
+
+def do_loss_attack(
+    x_targets, y_targets, predict_fn, loss_fn, mean_train_loss, std_train_loss, mean_test_loss, std_test_loss
+):
     pv = predict_fn(x_targets)
     loss_vec = loss_fn(y_targets, pv)
 
     in_or_out_pred = np.zeros((x_targets.shape[0],))
 
     gauss_train = stats.norm(mean_train_loss, std_train_loss).pdf(loss_vec)
-    gauss_test = stats.norm(mean_test_loss, std_test_loss).pdf(loss_vec)    
+    gauss_test = stats.norm(mean_test_loss, std_test_loss).pdf(loss_vec)
     in_or_out_pred = np.where(gauss_train > gauss_test, 1, 0)
 
-    return in_or_out_pred    
-    
+    return in_or_out_pred
+
+
 def do_loss_attack2(x_targets, y_targets, predict_fn, loss_fn, mean_train_loss, std_train_loss, threshold=0.6):
     pv = predict_fn(x_targets)
     loss_vec = loss_fn(y_targets, pv)
@@ -220,34 +228,35 @@ def do_loss_attack2(x_targets, y_targets, predict_fn, loss_fn, mean_train_loss, 
     in_or_out_pred = np.zeros((x_targets.shape[0],))
 
     gauss = stats.norm(mean_train_loss, std_train_loss).cdf(loss_vec)
-    in_or_out_pred = np.where( gauss < threshold, 1, 0)
+    in_or_out_pred = np.where(gauss < threshold, 1, 0)
+
+    return in_or_out_pred
 
 
-    return in_or_out_pred    
-    
-  
 """
 ## Membership inference attack based on Shokri et al. (2017)
 """
+
+
 def shokri_mia(predict_fn, shadow_train_x, shadow_train_y):
-    
     # generate the dataset for training the attack model
     attack_train_x = predict_fn(shadow_train_x)
     attack_train_y = shadow_train_y
 
-    
     # define the attack model
-    attack_model = keras.Sequential([
-        keras.layers.Input(shape=(attack_train_x.shape[1],)),
-        keras.layers.Dense(64, activation='relu'),
-        keras.layers.Dense(64, activation='relu'),
-        keras.layers.Dense(1, activation='sigmoid')
-    ])
-    attack_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    
+    attack_model = keras.Sequential(
+        [
+            keras.layers.Input(shape=(attack_train_x.shape[1],)),
+            keras.layers.Dense(64, activation="relu"),
+            keras.layers.Dense(64, activation="relu"),
+            keras.layers.Dense(1, activation="sigmoid"),
+        ]
+    )
+    attack_model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+
     # train the attack model
     attack_model.fit(attack_train_x, attack_train_y, epochs=20, batch_size=64, verbose=0)
-    
+
     # evaluate the attack model
     in_out_preds = (attack_model.predict(predict_fn(shadow_train_x)) > 0.5).astype(int)
     return in_out_preds
@@ -388,8 +397,8 @@ if __name__ == "__main__":
         mia_eval_data_y = np.r_[train_y[0:mia_eval_size], test_y[0:mia_eval_size]]
         mia_eval_data_in_out = np.r_[np.ones((mia_eval_size, 1)), np.zeros((mia_eval_size, 1))]
         assert mia_eval_data_x.shape[0] == mia_eval_data_in_out.shape[0]
-        
-        #New loss_fn
+
+        # New loss_fn
         loss_fn = compute_loss
         loss_train_vec = loss_fn(train_y[0:mia_eval_size], predict_fn(train_x[0:mia_eval_size]))
         loss_test_vec = loss_fn(test_y[0:mia_eval_size], predict_fn(test_x[0:mia_eval_size]))
@@ -398,26 +407,38 @@ if __name__ == "__main__":
         std_train_loss = np.std(loss_train_vec)
         mean_test_loss = np.mean(loss_test_vec)
         std_test_loss = np.std(loss_test_vec)
-        
+
         # so we can add new attack functions as needed
         print("\n------------ Privacy Attacks ----------")
         mia_attack_fns = []
-        mia_attack_fns.append(('Simple MIA Attack', simple_conf_threshold_mia))    
-        mia_attack_fns.append(('Loss attack', do_loss_attack))
-        mia_attack_fns.append(('Loss attack2', do_loss_attack2))
-        mia_attack_fns.append(('Shokri et al.', shokri_mia))
+        mia_attack_fns.append(("Simple MIA Attack", simple_conf_threshold_mia))
+        mia_attack_fns.append(("Loss attack", do_loss_attack))
+        mia_attack_fns.append(("Loss attack2", do_loss_attack2))
+        # mia_attack_fns.append(("Shokri et al.", shokri_mia))
 
         for i, tup in enumerate(mia_attack_fns):
             attack_str, attack_fn = tup
             if attack_fn == simple_conf_threshold_mia:
-               in_out_preds = simple_conf_threshold_mia(predict_fn, mia_eval_data_x).reshape(-1,1)
+                in_out_preds = simple_conf_threshold_mia(predict_fn, mia_eval_data_x).reshape(-1, 1)
             elif attack_fn == do_loss_attack:
-               in_out_preds = do_loss_attack(mia_eval_data_x, mia_eval_data_y, predict_fn, loss_fn, mean_train_loss, std_train_loss, mean_test_loss, std_test_loss).reshape(-1,1)
+                in_out_preds = do_loss_attack(
+                    mia_eval_data_x,
+                    mia_eval_data_y,
+                    predict_fn,
+                    loss_fn,
+                    mean_train_loss,
+                    std_train_loss,
+                    mean_test_loss,
+                    std_test_loss,
+                ).reshape(-1, 1)
             elif attack_fn == do_loss_attack2:
-               in_out_preds = do_loss_attack2(mia_eval_data_x, mia_eval_data_y, predict_fn, loss_fn, mean_train_loss, std_train_loss).reshape(-1,1)
+                in_out_preds = do_loss_attack2(
+                    mia_eval_data_x, mia_eval_data_y, predict_fn, loss_fn, mean_train_loss, std_train_loss
+                ).reshape(-1, 1)
             elif attack_fn == shokri_mia:
-               in_out_preds = shokri_mia(predict_fn, mia_eval_data_x, mia_eval_data_in_out).reshape(-1,1)
-            assert in_out_preds.shape == mia_eval_data_in_out.shape, 'Invalid attack output format'
+                in_out_preds = shokri_mia(predict_fn, mia_eval_data_x, mia_eval_data_in_out).reshape(-1, 1)
+
+            assert in_out_preds.shape == mia_eval_data_in_out.shape, "Invalid attack output format"
 
             cm = confusion_matrix(mia_eval_data_in_out, in_out_preds, labels=[0, 1])
             tn, fp, fn, tp = cm.ravel()
