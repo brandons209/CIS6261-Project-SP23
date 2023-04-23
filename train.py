@@ -45,8 +45,8 @@ class VAE(keras.Model):
 
         # decoder
         latent_inputs = keras.Input(shape=(16,))
-        x = layers.Dense(7 * 7 * 64, activation="relu")(latent_inputs)
-        x = layers.Reshape((7, 7, 64))(x)
+        x = layers.Dense(8 * 8 * 64, activation="relu")(latent_inputs)
+        x = layers.Reshape((8, 8, 64))(x)
         x = layers.Conv2DTranspose(64, 3, activation="relu", strides=2, padding="same")(x)
         x = layers.Conv2DTranspose(32, 3, activation="relu", strides=2, padding="same")(x)
         decoder_outputs = layers.Conv2DTranspose(3, 3, activation="sigmoid", padding="same")(x)
@@ -59,6 +59,10 @@ class VAE(keras.Model):
         self.reconstruction_loss_tracker = keras.metrics.Mean(name="reconstruction_loss")
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
 
+        self.test_total_loss_tracker = keras.metrics.Mean(name="test_total_loss")
+        self.test_reconstruction_loss_tracker = keras.metrics.Mean(name="test_reconstruction_loss")
+        self.test_kl_loss_tracker = keras.metrics.Mean(name="test_kl_loss")
+
     @property
     def metrics(self):
         return [
@@ -67,7 +71,14 @@ class VAE(keras.Model):
             self.kl_loss_tracker,
         ]
 
+    def call(self, inputs):
+        _, _, z = self.encoder(inputs)
+        return self.decoder(z)
+
     def train_step(self, data):
+        if len(data) > 1:
+            # remove labels (not needed)
+            data = data[0]
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder(data)
             reconstruction = self.decoder(z)
@@ -86,6 +97,29 @@ class VAE(keras.Model):
             "loss": self.total_loss_tracker.result(),
             "reconstruction_loss": self.reconstruction_loss_tracker.result(),
             "kl_loss": self.kl_loss_tracker.result(),
+        }
+
+    def test_step(self, data):
+        if len(data) > 1:
+            # remove labels (not needed)
+            data = data[0]
+
+        z_mean, z_log_var, z = self.encoder(data)
+        reconstruction = self.decoder(z)
+        reconstruction_loss = tf.reduce_mean(
+            tf.reduce_sum(keras.losses.binary_crossentropy(data, reconstruction), axis=(1, 2))
+        )
+        kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
+        kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss, axis=1))
+        total_loss = reconstruction_loss + kl_loss
+
+        self.test_total_loss_tracker.update_state(total_loss)
+        self.test_reconstruction_loss_tracker.update_state(reconstruction_loss)
+        self.test_kl_loss_tracker.update_state(kl_loss)
+        return {
+            "loss": self.test_total_loss_tracker.result(),
+            "reconstruction_loss": self.test_reconstruction_loss_tracker.result(),
+            "kl_loss": self.test_kl_loss_tracker.result(),
         }
 
 
@@ -139,7 +173,8 @@ def get_model(part: str, model_path: str = None):
         return model
     elif part == "vae":
         vae = VAE()
-        vae.compile(optimizer=keras.optimizers.Adam())
+        vae.compile(optimizer="adam")
+        vae.build((None, 32, 32, 3))
         return vae
     elif "finetune" in part:
         model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
@@ -151,10 +186,26 @@ def get_model(part: str, model_path: str = None):
 def train_model(model, train_data: tuple, validation_data: tuple, test_data: tuple):
     batch_size = 32
     epochs = 100
-    checkpointer = keras.callbacks.ModelCheckpoint(
-        f"{model.name}_best.h5", verbose=1, save_best_only=True, monitor="val_loss"
-    )
-    earlystop = keras.callbacks.EarlyStopping(monitor="val_loss", patience=4, verbose=1)
+
+    if model.name == "vae":
+        monitor = "val_loss"
+        checkpointer = keras.callbacks.ModelCheckpoint(
+            f"{model.name}_best.h5",
+            verbose=1,
+            save_best_only=True,
+            monitor=monitor,
+            save_weights_only=True,
+        )
+    else:
+        monitor = "val_loss"
+        checkpointer = keras.callbacks.ModelCheckpoint(
+            f"{model.name}_best.h5",
+            verbose=1,
+            save_best_only=True,
+            monitor=monitor,
+        )
+
+    earlystop = keras.callbacks.EarlyStopping(monitor=monitor, patience=4, verbose=1)
 
     history = model.fit(
         train_data[0],
@@ -200,7 +251,7 @@ if __name__ == "__main__":
 
     elif part == "ae_finetune" or "vae_finetune":
         # fine tune on attacked images
-        attacks = sorted(glob(os.path.join("attacks", "*.npz")))
+        attacks = sorted(glob(os.path.join("attacks", "part*train*.npz")))
 
         x, y = [], []
         for attack in attacks:

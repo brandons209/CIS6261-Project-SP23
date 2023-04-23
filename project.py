@@ -30,76 +30,113 @@ import utils  # we need this
 
 
 ## Basic prediction function
-def basic_predict(model, x):
-    return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
+def basic_predict(model, x, part: str = "part1", batch_size: int = 32):
+    return (
+        model.predict(x, verbose=0, batch_size=batch_size)
+        if part != "part2"
+        else model.predict(x * 255, verbose=0, batch_size=batch_size)
+    )
 
 
 def randomized_smoothing_predict(
-    model, x, mean: float = 0.0, sigma: float = 1.0, noise_type="Gaussian", raw: bool = False
+    model,
+    x,
+    mean: float = 0.0,
+    sigma: float = 1.0,
+    noise_type="Gaussian",
+    raw: bool = False,
+    part: str = "part1",
+    batch_size: int = 32,
 ):
-    if noise_type.lower() == "gaussian":
-        x_noisy = x + tf.random.normal(x.shape, mean=mean, stddev=sigma)
-    elif noise_type.lower() == "laplace":
-        x_noisy = x + np.random.laplace(loc=mean, scale=sigma, size=x.shape)
-    elif noise_type.lower() == "poisson":
-        x_noisy = x + np.random.poisson(lam=sigma, size=x.shape)
+    with tf.device("CPU:0"):
+        if noise_type.lower() == "gaussian":
+            x_noisy = x + tf.random.normal(x.shape, mean=mean, stddev=sigma)
+        elif noise_type.lower() == "laplace":
+            x_noisy = x + np.random.laplace(loc=mean, scale=sigma, size=x.shape)
+        elif noise_type.lower() == "poisson":
+            x_noisy = x + np.random.poisson(lam=sigma, size=x.shape)
 
-    x_noisy_clipped = tf.clip_by_value(x_noisy, 0, 1.0)  # clip
+        x_noisy_clipped = tf.clip_by_value(x_noisy, 0, 1.0)  # clip
 
-    if raw:
-        return x_noisy_clipped
-    return (
-        model.predict(x_noisy_clipped, verbose=0)
-        if part != "part2"
-        else model.predict(x_noisy_clipped * 255, verbose=0)
-    )
+        if raw:
+            return x_noisy_clipped
+
+        x_noisy_clipped = x_noisy_clipped if part != "part2" else x_noisy_clipped * 255
+
+    return model.predict(x_noisy_clipped, verbose=0, batch_size=batch_size)
 
 
-def distort_output_predict(model, x, y: np.array = None, amount=0.05):
+def distort_output_predict(model, x, y: np.array = None, amount=0.05, part: str = "part1", batch_size: int = 32):
     if y is not None:
         return y * (1 + amount)
-    return (
-        model.predict(x, verbose=0) * (1 + amount)
-        if part != "part2"
-        else model.predict(x * 255, verbose=0) * (1 + amount)
-    )
+
+    with tf.device("CPU:0"):
+        x = x if part != "part2" else x * 255
+
+    return model.predict(x, verbose=0, batch_size=batch_size) * (1 + amount)
 
 
-def salt_and_pepper_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
-    x_noisy = random_noise(x, mode="s&p", amount=amount, clip=True)
+def salt_and_pepper_noise_predict(
+    model, x, amount: float = 0.05, raw: bool = False, part: str = "part1", batch_size: int = 32
+):
+    with tf.device("CPU:0"):
+        x_noisy = random_noise(x, mode="s&p", amount=amount, clip=True)
+        if raw:
+            return x_noisy
 
-    if raw:
-        return x_noisy
-    return model.predict(x_noisy, verbose=0) if part != "part2" else model.predict(x_noisy * 255, verbose=0)
+        x_noisy = x_noisy if part != "part2" else x_noisy * 255
 
-
-def speckle_noise_predict(model, x, amount: float = 0.05, raw: bool = False):
-    x_noisy = random_noise(x, mode="speckle", mean=0, var=amount)
-
-    if raw:
-        return x_noisy
-    return model.predict(x_noisy, verbose=0) if part != "part2" else model.predict(x_noisy * 255, verbose=0)
+    return model.predict(x_noisy, verbose=0, batch_size=batch_size)
 
 
-def local_medium_smoothing_predict(model, x, kernel_size: tuple = (2, 2, 2), mode: str = "reflect", raw: bool = False):
-    filtered_image = median_filter(x, size=(1, *kernel_size), mode=mode)
-    if raw:
-        return filtered_image
-    return (
-        model.predict(filtered_image, verbose=0) if part != "part2" else model.predict(filtered_image * 255, verbose=0)
-    )
+def speckle_noise_predict(model, x, amount: float = 0.05, raw: bool = False, part: str = "part1", batch_size: int = 32):
+    with tf.device("CPU:0"):
+        x_noisy = random_noise(x, mode="speckle", mean=0, var=amount)
+
+        if raw:
+            return x_noisy
+        x_noisy = x_noisy if part != "part2" else x_noisy * 255
+
+    return model.predict(x_noisy, verbose=0, batch_size=batch_size)
 
 
-def color_bit_depth_reduction_predict(model, x, bit_depth: int = 8, raw: bool = False):
+def local_medium_smoothing_predict(
+    model,
+    x,
+    kernel_size: tuple = (2, 2, 2),
+    mode: str = "reflect",
+    raw: bool = False,
+    part: str = "part1",
+    batch_size: int = 32,
+):
+    with tf.device("CPU:0"):
+        filtered_image = median_filter(x, size=(1, *kernel_size), mode=mode)
+        if raw:
+            return filtered_image
+
+        filtered_image = filtered_image if part != "part2" else filtered_image * 255
+
+    return model.predict(filtered_image, verbose=0, batch_size=batch_size)
+
+
+def color_bit_depth_reduction_predict(
+    model, x, bit_depth: int = 8, raw: bool = False, part: str = "part1", batch_size: int = 32
+):
     bit_reduction = 2**bit_depth - 1
-    x = (x * bit_reduction).astype(int)
-    x = x.astype(float) / bit_reduction
-    if raw:
-        return x
-    return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
+
+    with tf.device("CPU:0"):
+        x = (x * bit_reduction).astype(int)
+        x = x.astype(float) / bit_reduction
+        if raw:
+            return x
+        x = x if part != "part2" else x * 255
+
+    return model.predict(x, verbose=0, batch_size=batch_size)
 
 
-def smoothing_convolution_predict(model, x, filter_type: str = "smooth", raw: bool = False):
+def smoothing_convolution_predict(
+    model, x, filter_type: str = "smooth", raw: bool = False, part: str = "part1", batch_size: int = 32
+):
     if filter_type == "smooth":
         filter = np.array(
             [
@@ -147,16 +184,22 @@ def smoothing_convolution_predict(model, x, filter_type: str = "smooth", raw: bo
     # convolve requires filter to have same number of dimensions as input, so it needs to be 3d
     filter = np.array([filter, filter, filter])
 
-    data = [convolve(i, filter) for i in x]
+    with tf.device("CPU:0"):
+        data = [convolve(i, filter) for i in x]
 
-    x = np.array(data)
+        x = np.array(data)
 
-    if raw:
-        return x
-    return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
+        if raw:
+            return x
+
+    return (
+        model.predict(x, verbose=0, batch_size=batch_size)
+        if part != "part2"
+        else model.predict(x * 255, verbose=0, batch_size=batch_size)
+    )
 
 
-def mean_denoising_predict(model, x, strength: float = 3, raw: bool = False):
+def mean_denoising_predict(model, x, strength: float = 3, raw: bool = False, part: str = "part1", batch_size: int = 32):
     data = [
         cv2.fastNlMeansDenoisingColored(
             cv2.cvtColor((i * 255).astype(np.float32), cv2.COLOR_RGB2BGR).astype(np.uint8),
@@ -175,15 +218,25 @@ def mean_denoising_predict(model, x, strength: float = 3, raw: bool = False):
 
     if raw:
         return x
-    return model.predict(x, verbose=0) if part != "part2" else model.predict(x * 255, verbose=0)
+    return (
+        model.predict(x, verbose=0, batch_size=batch_size)
+        if part != "part2"
+        else model.predict(x * 255, verbose=0, batch_size=batch_size)
+    )
 
 
-def defense_distillation_autoencoder(model, x, autoencoder_path: str = "ae_defense_best.h5"):
+def defense_distillation_autoencoder(
+    model, x, autoencoder_path: str = "ae_defense_best.h5", part: str = "part1", batch_size: int = 32
+):
     ae, _ = utils.load_model(autoencoder_path)
 
-    distilled_x = ae.predict(x, verbose=0)
+    distilled_x = ae.predict(x, verbose=0, batch_size=batch_size)
 
-    return model.predict(distilled_x, verbose=0) if part != "part2" else model.predict(distilled_x * 255, verbose=0)
+    return (
+        model.predict(distilled_x, verbose=0, batch_size=batch_size)
+        if part != "part2"
+        else model.predict(distilled_x * 255, verbose=0, batch_size=batch_size)
+    )
 
 
 ######### Membership Inference Attacks (MIAs) #########
@@ -265,9 +318,19 @@ def shokri_mia(predict_fn, shadow_train_x, shadow_train_y):
 ######### Main() #########
 
 if __name__ == "__main__":
-    model_path = "./part2_model_best.h5"  # "./target-model.h5"
-    global part
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+            logical_gpus = tf.config.list_logical_devices("GPU")
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+
+    os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"
+
+    model_path = "./part2_model_best.h5"
     part = "part2"
+    batch_size = 8
 
     # Let's check our software versions
     print("### Python version: " + __import__("sys").version)
@@ -317,64 +380,100 @@ if __name__ == "__main__":
 
     ### let's wrap the model prediction function so it could be replaced to implement a defense
     predict_fns = {
-        "Basic": lambda x: basic_predict(model, x),
-        # "Randomized Gaussian 0.05 sigma": lambda x: randomized_smoothing_predict(
-        #    model, x, sigma=0.05, noise_type="Gaussian"
-        # ),
-        # "Randomized Laplace 0.05 sigma": lambda x: randomized_smoothing_predict(
-        #    model, x, sigma=0.05, noise_type="Laplace"
-        # ),
-        # "Randomized Gaussian 0.25 sigma": lambda x: randomized_smoothing_predict(
-        #    model, x, sigma=0.25, noise_type="Gaussian"
-        # ),
-        # "Randomized Laplace 0.25 sigma": lambda x: randomized_smoothing_predict(
-        #    model, x, sigma=0.25, noise_type="Laplace"
-        # ),
-        # "Randomized Gaussian 0.5 sigma": lambda x: randomized_smoothing_predict(
-        #    model, x, sigma=0.5, noise_type="Gaussian"
-        # ),
-        # "Randomized Laplace 0.5 sigma": lambda x: randomized_smoothing_predict(
-        #    model, x, sigma=0.5, noise_type="Laplace"
-        # ),
-        # "Randomized Gaussian 1.0 sigma": lambda x: randomized_smoothing_predict(
-        #    model, x, sigma=1.0, noise_type="Gaussian"
-        # ),
-        # "Randomized Laplace 1.0 sigma": lambda x: randomized_smoothing_predict(
-        #    model, x, sigma=1.0, noise_type="Laplace"
-        # ),
-        # "Label distortion 0.05 sigma": lambda x: distort_output_predict(model, x),
-        # "Label distortion 0.1 sigma": lambda x: distort_output_predict(model, x, amount=0.1),
-        # "Label distortion 0.2 sigma": lambda x: distort_output_predict(model, x, amount=0.2),
-        # "Salt and Pepper Noise 0.01": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.01),
-        # "Salt and Pepper Noise 0.02": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.02),
-        # "Salt and Pepper Noise 0.05": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.05),
-        # "Salt and Pepper Noise 0.07": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.07),
-        # "Salt and Pepper Noise 0.09": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.09),
-        # "Speckle Noise 0.01": lambda x: speckle_noise_predict(model, x, amount=0.01),
-        # "Speckle Noise 0.02": lambda x: speckle_noise_predict(model, x, amount=0.02),
-        # "Speckle Noise 0.05": lambda x: speckle_noise_predict(model, x, amount=0.05),
-        # "Speckle Noise 0.07": lambda x: speckle_noise_predict(model, x, amount=0.07),
-        # "Speckle Noise 0.09": lambda x: speckle_noise_predict(model, x, amount=0.09),
-        # "Poisson_Noise 0.01 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.01, noise_type="poisson"),
-        # "Poisson_Noise 0.02 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.02, noise_type="poisson"),
-        # "Poisson_Noise 0.03 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.03, noise_type="poisson"),
-        # "Poisson_Noise 0.04 sigma": lambda x: randomized_smoothing_predict(model, x, sigma=0.04, noise_type="poisson"),
-        # "Local Median Smoothing Filter 2x2": lambda x: local_medium_smoothing_predict(model, x),
-        # "Local Median Smoothing Filter 3x3": lambda x: local_medium_smoothing_predict(model, x, kernel_size=(3, 3, 3)),
-        # "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=4),
-        # "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(model, x, bit_depth=2),
-        # "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(model, x, strength=0.8),
-        # "Non-local Mean denoising strength 1.5": lambda x: mean_denoising_predict(model, x, strength=1.5),
-        # "Non-local Mean denoising strength 3": lambda x: mean_denoising_predict(model, x, strength=3),
-        # "Non-local Mean denoising strength 7": lambda x: mean_denoising_predict(model, x, strength=7),
-        # "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(model, x, strength=10),
-        # "Non-local Mean denoising strength 12": lambda x: mean_denoising_predict(model, x, strength=12),
-        # "Non-local Mean denoising strength 15": lambda x: mean_denoising_predict(model, x, strength=15),
-        # "Smoothing Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="smooth"),
-        # "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen"),
-        # "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail"),
-        # "Blur Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="blur"),
-        "Defense Autoencoder": lambda x: defense_distillation_autoencoder(model, x),
+        "Basic": lambda x: basic_predict(model, x, part=part, batch_size=batch_size),
+        "Randomized Gaussian 0.05 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.05, noise_type="Gaussian", part=part, batch_size=batch_size
+        ),
+        "Randomized Laplace 0.05 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.05, noise_type="Laplace", part=part, batch_size=batch_size
+        ),
+        "Randomized Gaussian 0.1 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.1, noise_type="Gaussian", part=part, batch_size=batch_size
+        ),
+        "Randomized Laplace 0.1 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.1, noise_type="Laplace", part=part, batch_size=batch_size
+        ),
+        "Randomized Gaussian 0.2 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.2, noise_type="Gaussian", part=part, batch_size=batch_size
+        ),
+        "Randomized Laplace 0.2 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.2, noise_type="Laplace", part=part, batch_size=batch_size
+        ),
+        "Label distortion 0.05 sigma": lambda x: distort_output_predict(model, x, part=part, batch_size=batch_size),
+        "Label distortion 0.1 sigma": lambda x: distort_output_predict(
+            model, x, amount=0.1, part=part, batch_size=batch_size
+        ),
+        "Label distortion 0.2 sigma": lambda x: distort_output_predict(
+            model, x, amount=0.2, part=part, batch_size=batch_size
+        ),
+        "Salt and Pepper Noise 0.01": lambda x: salt_and_pepper_noise_predict(
+            model, x, amount=0.01, part=part, batch_size=batch_size
+        ),
+        "Salt and Pepper Noise 0.02": lambda x: salt_and_pepper_noise_predict(
+            model, x, amount=0.02, part=part, batch_size=batch_size
+        ),
+        "Salt and Pepper Noise 0.05": lambda x: salt_and_pepper_noise_predict(
+            model, x, amount=0.05, part=part, batch_size=batch_size
+        ),
+        "Salt and Pepper Noise 0.07": lambda x: salt_and_pepper_noise_predict(
+            model, x, amount=0.07, part=part, batch_size=batch_size
+        ),
+        # "Salt and Pepper Noise 0.09": lambda x: salt_and_pepper_noise_predict(model, x, amount=0.09, part=part, batch_size=batch_size),
+        "Speckle Noise 0.01": lambda x: speckle_noise_predict(model, x, amount=0.01, part=part, batch_size=batch_size),
+        "Speckle Noise 0.02": lambda x: speckle_noise_predict(model, x, amount=0.02, part=part, batch_size=batch_size),
+        "Speckle Noise 0.05": lambda x: speckle_noise_predict(model, x, amount=0.05, part=part, batch_size=batch_size),
+        "Speckle Noise 0.07": lambda x: speckle_noise_predict(model, x, amount=0.07, part=part, batch_size=batch_size),
+        # "Speckle Noise 0.09": lambda x: speckle_noise_predict(model, x, amount=0.09, part=part, batch_size=batch_size),
+        "Poisson_Noise 0.01 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.01, noise_type="poisson", part=part, batch_size=batch_size
+        ),
+        "Poisson_Noise 0.02 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.02, noise_type="poisson", part=part, batch_size=batch_size
+        ),
+        "Poisson_Noise 0.03 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.03, noise_type="poisson", part=part, batch_size=batch_size
+        ),
+        "Poisson_Noise 0.04 sigma": lambda x: randomized_smoothing_predict(
+            model, x, sigma=0.04, noise_type="poisson", part=part, batch_size=batch_size
+        ),
+        "Local Median Smoothing Filter 2x2": lambda x: local_medium_smoothing_predict(
+            model, x, part=part, batch_size=batch_size
+        ),
+        "Local Median Smoothing Filter 3x3": lambda x: local_medium_smoothing_predict(
+            model, x, kernel_size=(3, 3, 3), part=part, batch_size=batch_size
+        ),
+        "Color Bit Reduction 4bit": lambda x: color_bit_depth_reduction_predict(
+            model, x, bit_depth=4, part=part, batch_size=batch_size
+        ),
+        "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(
+            model, x, bit_depth=2, part=part, batch_size=batch_size
+        ),
+        "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(
+            model, x, strength=0.8, part=part, batch_size=batch_size
+        ),
+        "Non-local Mean denoising strength 1.5": lambda x: mean_denoising_predict(
+            model, x, strength=1.5, part=part, batch_size=batch_size
+        ),
+        "Non-local Mean denoising strength 3": lambda x: mean_denoising_predict(
+            model, x, strength=3, part=part, batch_size=batch_size
+        ),
+        "Non-local Mean denoising strength 7": lambda x: mean_denoising_predict(
+            model, x, strength=7, part=part, batch_size=batch_size
+        ),
+        "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(
+            model, x, strength=10, part=part, batch_size=batch_size
+        ),
+        "Non-local Mean denoising strength 12": lambda x: mean_denoising_predict(
+            model, x, strength=12, part=part, batch_size=batch_size
+        ),
+        "Non-local Mean denoising strength 15": lambda x: mean_denoising_predict(
+            model, x, strength=15, part=part, batch_size=batch_size
+        ),
+        # "Smoothing Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="smooth", batch_size=batch_size),
+        # "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen", batch_size=batch_size),
+        # "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail", batch_size=batch_size),
+        # "Blur Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="blur", batch_size=batch_size),
+        "Defense Autoencoder": lambda x: defense_distillation_autoencoder(model, x, part=part, batch_size=batch_size),
     }
 
     for i, predict_fn in enumerate(predict_fns.items()):
@@ -533,5 +632,5 @@ if __name__ == "__main__":
     data.index.name = "Predicton Function"
     print(data)
 
-    data.to_csv("results.csv")
+    data.to_csv(f"{part}_model_results.csv")
     sys.exit(0)
