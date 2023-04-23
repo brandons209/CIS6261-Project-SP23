@@ -2,6 +2,7 @@ import os
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
+from keras import backend as K
 
 import utils
 import json
@@ -274,8 +275,12 @@ def carlini_wagner(
     confidence=0.0,
     batch_size: int = 32,
 ):
+    x = tf.cast(x, tf.float32)
     # create a tensor to store the original (benign) examples
-    x_benign = tf.Variable(tf.zeros_like(x), dtype=tf.float64)
+    x_adv = tf.Variable(tf.zeros_like(x), dtype=tf.float32)
+    # create a tensor to store the adverserial examples
+    x_benign = tf.Variable(tf.zeros_like(x), dtype=tf.float32)
+
     x_benign.assign(x)
 
     # compute the logits for the original (benign) examples
@@ -294,11 +299,10 @@ def carlini_wagner(
         return K.sum(K.square(a - b), axis=(1, 2, 3))
 
     def cw_loss_func(inputs, labels):
-        # compute the logits for the given inputs
+    # compute the logits for the given inputs
         logits = []
-        for i in range(0, len(inputs), batch_size):
-
-           logits.append(model(inputs[i : i + batch_size]))
+        for i in range(0, len(inputs.numpy()), batch_size):
+            logits.append(model(inputs[i : i + batch_size]))
         logits = tf.concat(logits, axis=0)
         # compute the l2 distance between the inputs and the adversarial examples
         distances = l2_distance(inputs, x)
@@ -315,9 +319,6 @@ def carlini_wagner(
         # compute the total loss
         return K.mean(initial_const * losses + c * distances)
 
-    # create a tensor to store the adversarial examples
-    x_adv = tf.Variable(tf.zeros_like(x), dtype=tf.float64)
-
     # define the optimizer
     optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
 
@@ -328,8 +329,9 @@ def carlini_wagner(
             tape.watch(x_adv)
             loss = cw_loss_func(x_adv, tf.one_hot(y, num_classes))
         gradients = tape.gradient(loss, x_adv)
-         # update the adversarial examples
-        x_adv.assign_add(lr * tf.sign(gradients))
+
+        # apply the gradients to the adversarial examples using the optimizer
+        optimizer.apply_gradients([(gradients, x_adv)])
 
         # print the loss for monitoring progress
         print(f"Step {i+1}, Loss={loss.numpy()}")
@@ -373,52 +375,7 @@ if __name__ == "__main__":
     print(x.shape)
     print(y.shape)
     print(np.max(x))
-    print("--> Starting Carlini Wagner attack...")
-    c_array = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 75.0, 100.0]
-    lr_array = [0.001, 0.005, 0.01, 0.02, 0.03, 0.05, 0.07, 0.08, 0.09, 0.1]
-    initial_const = 0.001
-    max_iter = 20
-    targeted = True
-    confidence = 0.0
-
-    for c in c_array:
-        for lr in lr_array:
-            print(f"\t--> Performing Carlini Wagner Attack with c {c} and lr {lr}")
-
-            # max_iter: The maximum number of iterations to run the attack.
-            # targeted: A boolean indicating whether to perform a targeted or untargeted attack.
-            # confidence: The confidence level for the attack, which affects the strength of the attack.
-            # c: A constant used to weight the l2 distance term in the loss function.
-            # lr: The learning rate for the optimizer.
-            # initial_const: The initial value for the constant used to weight the loss term in the loss function.
-
-            # c: Typically, c can range from 0.1 to 100.0. A higher value of c means that the algorithm prioritizes minimizing the distortion (L2 distance) between the adversarial examples and the original examples. On the other hand, a lower value of c means that the algorithm prioritizes minimizing the loss function (i.e., maximizing the probability of the target class for a targeted attack or minimizing the probability of the true class for an untargeted attack).
-            # lr: The learning rate lr typically ranges from 0.001 to 0.1. This value controls how much the adversarial examples are updated in each iteration of the optimization process
-
-            # don't recreate if it already exists
-            if os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv4_carlini_wagner_c_{c}_lr_{lr}.npz")):
-                break
-
-            x_benign, correct_labels, x_adv = carlini_wagner(
-                model,
-                x[idx],
-                y[idx],
-                c,
-                lr,
-                initial_const,
-                max_iter,
-                targeted,
-                confidence,
-            )
-            np.savez(
-                os.path.join("attacks", f"{part}_{name}_adv4_carlini_wagner_c_{c}_lr_{lr}.npz"),
-                benign_x=x_benign,
-                benign_y=correct_labels,
-                adv_x=x_adv,
-            )
-    print(
-        f"\t--> Finished Carlini Wagner attack. Saved to attacks/{part}_{name}_adv4_carlini_wagner_c_{c}_lr_{lr}.npz"
-    )
+    
     print(f"Generating {num_train_samples} adversial train and {num_test_samples} test examples per attack for {part}.")
 
     print("--> Starting targeted gradient attack...")
@@ -466,7 +423,52 @@ if __name__ == "__main__":
             print(
                 f"\t--> Finished targeted gradient attack. Saved to attacks/{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"
             )
+        print("--> Starting Carlini Wagner attack...")
+        c_array = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 75.0, 100.0]
+        lr_array = [0.001, 0.005, 0.01, 0.02, 0.03, 0.05, 0.07, 0.08, 0.09, 0.1]
+        initial_const = 0.001
+        max_iter = 20
+        targeted = True
+        confidence = 0.0
 
+        for c in c_array:
+            for lr in lr_array:
+                print(f"\t--> Performing Carlini Wagner Attack with c {c} and lr {lr}")
+
+                # max_iter: The maximum number of iterations to run the attack.
+                # targeted: A boolean indicating whether to perform a targeted or untargeted attack.
+                # confidence: The confidence level for the attack, which affects the strength of the attack.
+                # c: A constant used to weight the l2 distance term in the loss function.
+                # lr: The learning rate for the optimizer.
+                # initial_const: The initial value for the constant used to weight the loss term in the loss function.
+
+                # c: Typically, c can range from 0.1 to 100.0. A higher value of c means that the algorithm prioritizes minimizing the distortion (L2 distance) between the adversarial examples and the original examples. On the other hand, a lower value of c means that the algorithm prioritizes minimizing the loss function (i.e., maximizing the probability of the target class for a targeted attack or minimizing the probability of the true class for an untargeted attack).
+                # lr: The learning rate lr typically ranges from 0.001 to 0.1. This value controls how much the adversarial examples are updated in each iteration of the optimization process
+
+                # don't recreate if it already exists
+                if os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv4_carlini_wagner_c_{c}_lr_{lr}.npz")):
+                    break
+
+                x_benign, correct_labels, x_adv = carlini_wagner(
+                    model,
+                    x[idx],
+                    y[idx],
+                    c,
+                    lr,
+                    initial_const,
+                    max_iter,
+                    targeted,
+                    confidence,
+                )
+                np.savez(
+                    os.path.join("attacks", f"{part}_{name}_adv4_carlini_wagner_c_{c}_lr_{lr}.npz"),
+                    benign_x=x_benign,
+                    benign_y=correct_labels,
+                    adv_x=x_adv,
+                )
+        print(
+            f"\t--> Finished Carlini Wagner attack. Saved to attacks/{part}_{name}_adv4_carlini_wagner_c_{c}_lr_{lr}.npz"
+        )
         print("\n--> Starting untargeted random noise attack...")
         for a in alpha_values:
             # don't recreate if it already exists
