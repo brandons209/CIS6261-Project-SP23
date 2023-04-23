@@ -348,8 +348,8 @@ if __name__ == "__main__":
         1.5,
         2.0,
     ]
-    part = "part2"
-    model_path = "./part2_model_best.h5"  # "./target-model.h5"
+    part = "part1"
+    model_path = "./target-model.h5"
 
     if part == "part2":
         model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
@@ -541,4 +541,89 @@ if __name__ == "__main__":
                 adv_x=x_adv,
             )
 
+<<<<<<< HEAD
     print(f"\t--> Finished Carlini Wagner attack. Saved to attacks/adv4_carlini_wagner_c_{c}_lr_{lr}.npz")
+=======
+            print(
+                f"\t--> Finished targeted gradient attack. Saved to attacks/{part}_{name}_adv2_gradient_attack_alpha_{a}.npz"
+            )
+
+        print("\n--> Starting untargeted random noise attack...")
+        for a in alpha_values:
+            # don't recreate if it already exists
+            if os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv4_noise_attack_sigma_{a}.npz")):
+                continue
+
+            x_benign = x[idx]
+            x_adv, correct_labels = untargeted_random_noise(
+                model,
+                x[idx],
+                y[idx],
+                max_iter=150,
+                sigma=a,
+                eps=0.05,
+                conf=0.5,
+                part=part,
+            )
+
+            np.savez(
+                os.path.join("attacks", f"{part}_{name}_adv4_noise_attack_sigma_{a}.npz"),
+                benign_x=x_benign,
+                benign_y=correct_labels,
+                adv_x=x_adv,
+            )
+
+            print(f"\t--> Finished random noise attack. Saved to attacks/{part}_{name}_adv4_noise_attack_sigma_{a}.npz")
+
+        print("\n--> Starting untargeted FGSM attack...")
+        for a in alpha_values:
+            if not os.path.isfile(os.path.join("attacks", f"{part}_{name}_adv3_fgsm_alpha_{a}.npz")):
+                print(f"\t--> Performing FGSM with alpha value {a}")
+                x_benign = x[idx]
+                x_adv, correct_labels = craft_adversarial_fgsmk(
+                    model,
+                    x[idx],
+                    y[idx],
+                    eps=0.05,
+                    alpha=a,
+                    part=part,
+                )
+
+                np.savez(
+                    os.path.join("attacks", f"{part}_{name}_adv3_fgsm_alpha_{a}.npz"),
+                    benign_x=x_benign,
+                    benign_y=correct_labels,
+                    adv_x=x_adv,
+                )
+
+                print(f"\t-->Finished untargeted FGSM attack. Saved to attacks/{part}_{name}_adv3_fgsm_alpha_{a}.npz")
+
+            """
+            print(f"\t--> Starting MI-FGSM with alpha value {a}")
+            for d in decay_values:
+                if os.path.isfile(os.path.join("attacks", f"{name}_adv3_mifgsm_alpha_{a}_decay_{d}.npz")):
+                    continue
+                print(f"\t\t--> Performing MI FGSM with alpha value {a} and decay value {d}")
+                x_benign = x[idx]
+                x_adv, correct_labels = craft_adversarial_fgsmk(
+                    model,
+                    x[idx],
+                    y[idx],
+                    eps=0.05,
+                    alpha=a,
+                    method="mifgsm",
+                    decay=d,
+                )
+
+                np.savez(
+                    os.path.join("attacks", f"{name}_adv3_mifgsm_alpha_{a}_decay_{d}.npz"),
+                    benign_x=x_benign,
+                    benign_y=correct_labels,
+                    adv_x=x_adv,
+                )
+
+                print(f"\t\t-->Finished MI-FGSM attack. Saved to attacks/{name}_adv3_mifgsm_alpha_{a}_decay_{d}.npz")
+
+            print("\t-->Finished MI-FGSM attack.")
+            """
+>>>>>>> 34aee09496f120066887c654926418c6af53391a

@@ -118,14 +118,18 @@ def get_model(part: str, model_path: str = None):
     elif part == "ae":
         input = layers.Input(shape=(32, 32, 3))
         # Encoder
-        x = layers.Conv2D(32, (3, 3), activation="relu", padding="same")(input)
+        x = layers.Conv2D(256, (3, 3), activation="relu", padding="same")(input)
+        x = layers.Conv2D(512, (3, 3), activation="relu", padding="same")(input)
+        x = layers.Conv2D(1024, (3, 3), activation="relu", padding="same")(input)
+        x = layers.Conv2D(512, (3, 3), activation="relu", padding="same")(input)
+        x = layers.Conv2D(256, (3, 3), activation="relu", padding="same")(input)
         x = layers.MaxPooling2D((2, 2), padding="same")(x)
-        x = layers.Conv2D(32, (3, 3), activation="relu", padding="same")(x)
+        x = layers.Conv2D(128, (3, 3), activation="relu", padding="same")(x)
         x = layers.MaxPooling2D((2, 2), padding="same")(x)
 
         # Decoder
-        x = layers.Conv2DTranspose(32, (3, 3), strides=2, activation="relu", padding="same")(x)
-        x = layers.Conv2DTranspose(32, (3, 3), strides=2, activation="relu", padding="same")(x)
+        x = layers.Conv2DTranspose(512, (3, 3), strides=2, activation="relu", padding="same")(x)
+        x = layers.Conv2DTranspose(512, (3, 3), strides=2, activation="relu", padding="same")(x)
         x = layers.Conv2D(3, (3, 3), activation="sigmoid", padding="same")(x)
 
         # Autoencoder
