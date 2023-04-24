@@ -299,22 +299,28 @@ def carlini_wagner(
         return K.sum(K.square(a - b), axis=(1, 2, 3))
 
     def cw_loss_func(inputs, labels):
-    # compute the logits for the given inputs
-        logits = []
+        # compute the logits for the given inputs
+        other_labels = []
+        target_labels = []
+        distances = []
         for i in range(0, len(inputs.numpy()), batch_size):
-            logits.append(model(inputs[i : i + batch_size]))
-        logits = tf.concat(logits, axis=0)
-        # compute the l2 distance between the inputs and the adversarial examples
-        distances = l2_distance(inputs, x)
-        # compute the loss according to the targeted or untargeted setting
-        if targeted:
-            other_labels = tf.reduce_max(logits - labels, axis=1)
-            target_labels = tf.reduce_max(labels, axis=1)
-            losses = tf.maximum(0.0, other_labels - target_labels + confidence)
-        else:
-            correct_labels = tf.reduce_max(logits * labels, axis=1)
-            other_labels = tf.reduce_max(logits * (1 - labels), axis=1)
-            losses = tf.maximum(0.0, other_labels - correct_labels + confidence)
+            logits = model(inputs[i : i + batch_size])
+
+            # compute the l2 distance between the inputs and the adversarial examples
+            distance = l2_distance(inputs[i : i + batch_size], x[i : i + batch_size])
+            distances.append(distance)
+            # compute the loss according to the targeted or untargeted setting
+            if targeted:
+                other_labels.append(tf.reduce_max(logits - labels[i : i + batch_size], axis=1))
+                target_labels.append(tf.reduce_max(labels[i : i + batch_size], axis=1))
+            else:
+                target_labels.append(tf.reduce_max(logits * labels[i : i + batch_size], axis=1))
+                other_labels.append(tf.reduce_max(logits * (1 - labels[i : i + batch_size]), axis=1))
+
+        other_labels = np.array(other_labels)
+        target_labels = np.array(target_labels)
+        distances = np.array(distances)
+        losses = tf.maximum(0.0, other_labels - correct_labels + confidence)
 
         # compute the total loss
         return K.mean(initial_const * losses + c * distances)
@@ -338,9 +344,19 @@ def carlini_wagner(
 
     return x_benign.numpy(), correct_labels.numpy(), x_adv.numpy()
 
+
 if __name__ == "__main__":
     # having issues with vram on gpu, so force CPU usage
-    # os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    gpus = tf.config.list_physical_devices("GPU")
+    if gpus:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+            logical_gpus = tf.config.list_logical_devices("GPU")
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+
+    os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"
 
     num_train_samples = 2500
     num_test_samples = 1000
@@ -375,7 +391,7 @@ if __name__ == "__main__":
     print(x.shape)
     print(y.shape)
     print(np.max(x))
-    
+
     print(f"Generating {num_train_samples} adversial train and {num_test_samples} test examples per attack for {part}.")
 
     print("--> Starting targeted gradient attack...")
@@ -394,7 +410,7 @@ if __name__ == "__main__":
     else:
         with open(f"{part}_adv_indicies.json", "r") as f:
             idxes = json.load(f)
-    
+
     for name, idx in idxes.items():
         for a in alpha_values:
             # don't recreate if it already exists
@@ -459,6 +475,7 @@ if __name__ == "__main__":
                     max_iter,
                     targeted,
                     confidence,
+                    batch_size=8,
                 )
                 np.savez(
                     os.path.join("attacks", f"{part}_{name}_adv4_carlini_wagner_c_{c}_lr_{lr}.npz"),
@@ -469,6 +486,7 @@ if __name__ == "__main__":
         print(
             f"\t--> Finished Carlini Wagner attack. Saved to attacks/{part}_{name}_adv4_carlini_wagner_c_{c}_lr_{lr}.npz"
         )
+
         print("\n--> Starting untargeted random noise attack...")
         for a in alpha_values:
             # don't recreate if it already exists
