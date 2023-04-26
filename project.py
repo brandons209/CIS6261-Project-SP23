@@ -226,17 +226,54 @@ def mean_denoising_predict(model, x, strength: float = 3, raw: bool = False, par
 
 
 def defense_distillation_autoencoder(
-    model, x, autoencoder_path: str = "ae_defense_best.h5", part: str = "part1", batch_size: int = 32
+    model,
+    x,
+    autoencoder_path: str = "ae_defense_best.h5",
+    part: str = "part1",
+    batch_size: int = 32,
+    raw: bool = False,
 ):
     ae, _ = utils.load_model(autoencoder_path)
 
     distilled_x = ae.predict(x, verbose=0, batch_size=batch_size)
+
+    if raw:
+        return distilled_x
 
     return (
         model.predict(distilled_x, verbose=0, batch_size=batch_size)
         if part != "part2"
         else model.predict(distilled_x * 255, verbose=0, batch_size=batch_size)
     )
+
+
+def final_defense_predict(
+    model,
+    x,
+    batch_size: int = 32,
+    part: str = "part1",
+):
+    distilled_x = defense_distillation_autoencoder(model, x, raw=True, batch_size=batch_size, part=part)
+
+    with tf.device("/CPU:0"):
+        denoised_x = mean_denoising_predict(
+            model,
+            distilled_x,
+            strength=7,
+            part=part,
+            batch_size=batch_size,
+            raw=True,
+        )
+
+        # denoised_x = local_medium_smoothing_predict(model, distilled_x, part=part, batch_size=batch_size, raw=True)
+
+    output = (
+        model.predict(denoised_x, batch_size=batch_size, verbose=0)
+        if part != "part2"
+        else model.predict(denoised_x * 255, verbose=0, batch_size=batch_size)
+    )
+
+    return distort_output_predict(model, denoised_x, y=output)
 
 
 ######### Membership Inference Attacks (MIAs) #########
@@ -328,9 +365,9 @@ if __name__ == "__main__":
 
     os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"
 
-    model_path = "./part2_model_best.h5"
-    part = "part2"
-    batch_size = 4
+    model_path = "./target-model.h5"
+    part = "part1"
+    batch_size = 32
 
     # Let's check our software versions
     print("### Python version: " + __import__("sys").version)
@@ -369,7 +406,7 @@ if __name__ == "__main__":
 
     model, _ = utils.load_model(model_path, custom_objects={"LayerScale": LayerScale})
     print(f"Loaded model: {model.name}")
-    # model.summary()  ## you can uncomment this to check the model architecture (ResNet)
+    model.summary()  ## you can uncomment this to check the model architecture (ResNet)
 
     st_after_model = time.time()
 
@@ -448,32 +485,33 @@ if __name__ == "__main__":
         # "Color Bit Reduction 2bit": lambda x: color_bit_depth_reduction_predict(
         #    model, x, bit_depth=2, part=part, batch_size=batch_size
         # ),
-        "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(
-            model, x, strength=0.8, part=part, batch_size=batch_size
-        ),
-        "Non-local Mean denoising strength 1.5": lambda x: mean_denoising_predict(
-            model, x, strength=1.5, part=part, batch_size=batch_size
-        ),
-        "Non-local Mean denoising strength 3": lambda x: mean_denoising_predict(
-            model, x, strength=3, part=part, batch_size=batch_size
-        ),
-        "Non-local Mean denoising strength 7": lambda x: mean_denoising_predict(
-            model, x, strength=7, part=part, batch_size=batch_size
-        ),
-        "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(
-            model, x, strength=10, part=part, batch_size=batch_size
-        ),
-        "Non-local Mean denoising strength 12": lambda x: mean_denoising_predict(
-            model, x, strength=12, part=part, batch_size=batch_size
-        ),
-        "Non-local Mean denoising strength 15": lambda x: mean_denoising_predict(
-            model, x, strength=15, part=part, batch_size=batch_size
-        ),
+        # "Non-local Mean denoising strength 0.8": lambda x: mean_denoising_predict(
+        #    model, x, strength=0.8, part=part, batch_size=batch_size
+        # ),
+        # "Non-local Mean denoising strength 1.5": lambda x: mean_denoising_predict(
+        #    model, x, strength=1.5, part=part, batch_size=batch_size
+        # ),
+        # "Non-local Mean denoising strength 3": lambda x: mean_denoising_predict(
+        #    model, x, strength=3, part=part, batch_size=batch_size
+        # ),
+        # "Non-local Mean denoising strength 7": lambda x: mean_denoising_predict(
+        #    model, x, strength=7, part=part, batch_size=batch_size
+        # ),
+        # "Non-local Mean denoising strength 10": lambda x: mean_denoising_predict(
+        #    model, x, strength=10, part=part, batch_size=batch_size
+        # ),
+        # "Non-local Mean denoising strength 12": lambda x: mean_denoising_predict(
+        #    model, x, strength=12, part=part, batch_size=batch_size
+        # ),
+        # "Non-local Mean denoising strength 15": lambda x: mean_denoising_predict(
+        #    model, x, strength=15, part=part, batch_size=batch_size
+        # ),
         # "Smoothing Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="smooth", batch_size=batch_size),
         # "Sharpen Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="sharpen", batch_size=batch_size),
         # "Detail Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="detail", batch_size=batch_size),
         # "Blur Convolution Filter": lambda x: smoothing_convolution_predict(model, x, filter_type="blur", batch_size=batch_size),
-        "Defense Autoencoder": lambda x: defense_distillation_autoencoder(model, x, part=part, batch_size=batch_size),
+        # "Defense Autoencoder": lambda x: defense_distillation_autoencoder(model, x, part=part, batch_size=batch_size),
+        "Best prediction function": lambda x: final_defense_predict(model, x, batch_size=batch_size, part=part)
     }
 
     for i, predict_fn in enumerate(predict_fns.items()):
@@ -629,7 +667,7 @@ if __name__ == "__main__":
 
         data = pd.DataFrame(list(history.values()), columns=headers, index=list(history.keys()))
         data.index.name = "Predicton Function"
-        data.to_csv(f"{part}_model_results.csv")
+        data.to_csv(f"{part}_model_results_final.csv")
 
     # print consolidated results
     print(data)
